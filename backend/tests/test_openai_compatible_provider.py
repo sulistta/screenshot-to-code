@@ -12,7 +12,6 @@ from agent.providers.openai_compatible import (
 from agent.tools import ToolCall, ToolExecutionResult
 from agent.providers.base import ExecutedToolCall
 from llm import Llm
-from routes.generate_code import ModelSelectionStage
 
 
 def _custom_provider() -> CustomProvider:
@@ -129,27 +128,29 @@ async def _ignore_event(_: Any) -> None:
     pass
 
 
-@pytest.mark.asyncio
-async def test_custom_model_is_selected_for_every_variant() -> None:
-    async def throw_error(_: str) -> None:
-        raise AssertionError("unexpected error")
+def test_provider_session_pins_requested_model_id() -> None:
+    """A pinned custom:<model-id> reaches the wire as the exact model."""
+    from agent.providers.factory import create_provider_session
 
-    models = await ModelSelectionStage(throw_error).select_models(
-        generation_type="create",
-        input_mode="image",
+    provider = _custom_provider()  # models: ["model-a", "model-b"]
+    session = create_provider_session(
+        model=Llm.OPENAI_COMPATIBLE,
+        prompt_messages=[{"role": "user", "content": "hi"}],
+        should_generate_images=False,
         openai_api_key=None,
+        openai_base_url=None,
         anthropic_api_key=None,
-        custom_provider=_custom_provider(),
+        gemini_api_key=None,
+        replicate_api_key=None,
+        custom_provider=provider,
+        custom_model_id="model-b",
     )
-
-    assert models
-    assert set(models) == {Llm.OPENAI_COMPATIBLE}
+    assert session._model_name == "model-b"
 
 
-@pytest.mark.asyncio
-async def test_custom_provider_variants_cycle_across_models() -> None:
-    async def throw_error(_: str) -> None:
-        raise AssertionError("unexpected error")
+def test_provider_session_cycles_models_without_pin() -> None:
+    """Unpinned runs cycle the provider's registered models per variant."""
+    from agent.providers.factory import create_provider_session
 
     provider = CustomProvider(
         id="test-provider",
@@ -159,16 +160,32 @@ async def test_custom_provider_variants_cycle_across_models() -> None:
         protocol="chat_completions",
         models=["model-a", "model-b"],
     )
-    models = await ModelSelectionStage(throw_error).select_models(
-        generation_type="create",
-        input_mode="image",
+    first = create_provider_session(
+        model=Llm.OPENAI_COMPATIBLE,
+        prompt_messages=[{"role": "user", "content": "hi"}],
+        should_generate_images=False,
         openai_api_key=None,
+        openai_base_url=None,
         anthropic_api_key=None,
+        gemini_api_key=None,
+        replicate_api_key=None,
         custom_provider=provider,
+        custom_model_index=0,
     )
-
-    assert len(models) == 4
-    assert set(models) == {Llm.OPENAI_COMPATIBLE}
+    second = create_provider_session(
+        model=Llm.OPENAI_COMPATIBLE,
+        prompt_messages=[{"role": "user", "content": "hi"}],
+        should_generate_images=False,
+        openai_api_key=None,
+        openai_base_url=None,
+        anthropic_api_key=None,
+        gemini_api_key=None,
+        replicate_api_key=None,
+        custom_provider=provider,
+        custom_model_index=1,
+    )
+    assert first._model_name == "model-a"
+    assert second._model_name == "model-b"
 
 
 def test_resolve_active_custom_provider_selects_enabled_entry() -> None:

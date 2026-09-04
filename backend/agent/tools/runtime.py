@@ -67,6 +67,18 @@ class AgentToolRuntime:
         return self.replicate_api_key or REPLICATE_API_KEY
 
     async def execute(self, tool_call: ToolCall) -> ToolExecutionResult:
+        try:
+            return await self._execute_inner(tool_call)
+        except InvalidWorkspacePath as exc:
+            # Scope violations (subagent write guards) are recoverable tool
+            # errors the model can react to, not run failures.
+            return ToolExecutionResult(
+                ok=False,
+                result={"error": str(exc)},
+                summary={"error": "Path outside allowed scope"},
+            )
+
+    async def _execute_inner(self, tool_call: ToolCall) -> ToolExecutionResult:
         if "INVALID_JSON" in tool_call.arguments:
             invalid_json = ensure_str(tool_call.arguments.get("INVALID_JSON"))
             return ToolExecutionResult(

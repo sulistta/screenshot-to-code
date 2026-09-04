@@ -74,11 +74,19 @@ class Workspace:
         content: str = "",
         entry_point: str = "",
         files: Optional[Dict[str, str]] = None,
+        write_scope: Optional[List[str]] = None,
     ) -> None:
         self.entry_point = normalize_path(entry_point or path, ENTRY_POINT)
         self.files: Dict[str, str] = dict(files) if isinstance(files, dict) else {}
         if content:
             self.files.setdefault(self.entry_point, content)
+        # When set, writes outside these paths are rejected (subagent scope
+        # enforcement is structural, not prompt-enforced).
+        self.write_scope: Optional[List[str]] = (
+            [normalize_path(p, self.entry_point) for p in write_scope]
+            if write_scope
+            else None
+        )
 
     def __repr__(self) -> str:
         return (
@@ -106,6 +114,10 @@ class Workspace:
     # --- multi-file API -----------------------------------------------------
     def write(self, raw_path: str, content: str) -> str:
         path = normalize_path(raw_path, self.entry_point)
+        if self.write_scope is not None and path not in self.write_scope:
+            raise InvalidWorkspacePath(
+                f"Path {path!r} is outside this agent's file scope."
+            )
         self.files[path] = content or ""
         return path
 
@@ -185,8 +197,11 @@ def seed_workspace_from_messages(
         if not raw_text:
             continue
         extracted = extract_html_content(raw_text)
-        workspace.content = extracted or raw_text
-        return
+        # Only accept content that is actually a document: assistant chat
+        # summaries must never become the page (legacy fallback behavior).
+        if extracted and "<html" in extracted.lower():
+            workspace.content = extracted
+            return
 
     if not prompt_messages:
         return
@@ -200,7 +215,8 @@ def seed_workspace_from_messages(
     if marker in system_text:
         raw_text = system_text.split(marker, 1)[1].strip()
         extracted = extract_html_content(raw_text)
-        workspace.content = extracted or raw_text
+        if extracted and "<html" in extracted.lower():
+            workspace.content = extracted
 
 
 def _extract_text_content(message: Dict[str, object]) -> str:

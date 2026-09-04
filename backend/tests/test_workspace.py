@@ -110,10 +110,10 @@ def test_seed_from_assistant_message() -> None:
     seed_workspace_from_messages(
         ws,
         [
-            {"role": "assistant", "content": '<file path="index.html">SEALED</file>'},
+            {"role": "assistant", "content": '<file path="index.html"><html>SEALED</html></file>'},
         ],
     )
-    assert ws.content == "SEALED"
+    assert "SEALED" in ws.content
 
 
 def test_seed_keeps_existing_content() -> None:

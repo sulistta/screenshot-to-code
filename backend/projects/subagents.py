@@ -117,8 +117,10 @@ async def run_subagent(
             status=RunStatus.FAILED,
         )
 
-    # The subagent works on an isolated copy of its scoped files.
-    sub_workspace = Workspace()
+    # The subagent works on an isolated copy of its scoped files, with the
+    # scope enforced on every write — the model cannot step outside its
+    # brief even by accident.
+    sub_workspace = Workspace(write_scope=brief.file_paths)
     for path in brief.file_paths:
         if parent_workspace.has(path):
             sub_workspace.write(path, parent_workspace.read(path))

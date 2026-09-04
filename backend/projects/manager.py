@@ -495,8 +495,9 @@ def resolve_execution_config(
     # individual model ids, addressed as "custom:<model-id>".
     custom = active_custom_provider(settings)
     if custom is not None:
+        # models are plain model-id strings on the resolved provider.
         available_by_value.append(Llm.OPENAI_COMPATIBLE.value)
-        available_by_value.extend(f"custom:{m.id}" for m in custom.models)
+        available_by_value.extend(f"custom:{model_id}" for model_id in custom.models)
     if primary:
         if primary not in available_by_value:
             raise ValueError(

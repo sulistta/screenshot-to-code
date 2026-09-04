@@ -102,7 +102,8 @@ async def test_subagent_writes_scoped_files_and_merges_back(
     parent.write("index.html", "<html>entry</html>")
     parent.write("hero.html", "<section>old</section>")
 
-    # The fake subagent session edits its scoped copy and adds a file.
+    # The fake subagent session edits its scoped file and adds a stylesheet
+    # that the brief explicitly scoped.
     sub_turns = [
         ProviderTurn(
             assistant_text="",
@@ -129,7 +130,11 @@ async def test_subagent_writes_scoped_files_and_merges_back(
 
     keys = {"openai_api_key": "k"}
     result = await run_subagent(
-        SubagentBrief(role="designer", objective="redo hero", file_paths=["hero.html"]),
+        SubagentBrief(
+            role="designer",
+            objective="redo hero",
+            file_paths=["hero.html", "hero.css"],
+        ),
         parent,
         model=Any,
         request_settings={},
@@ -137,14 +142,49 @@ async def test_subagent_writes_scoped_files_and_merges_back(
     )
     assert result.ok is True
     assert result.summary == "Hero rebuilt."
-    # Scoped file edits and new files merge back into the parent.
+    # Scoped file edits and scoped new files merge back into the parent.
     assert parent.read("hero.html") == "<section>new</section>"
     assert parent.read("hero.css") == ".hero{}"
     # Out-of-scope parent files are untouched.
     assert parent.read("index.html") == "<html>entry</html>"
-    # Out-of-scope files never entered the subagent workspace; its writes
-    # could not affect them even if it tried.
     assert sorted(result.files) == ["hero.css", "hero.html"]
+
+
+@pytest.mark.asyncio
+async def test_subagent_cannot_write_outside_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Scope enforcement is structural: out-of-scope writes fail loudly."""
+    parent = Workspace()
+    parent.write("index.html", "<html>entry</html>")
+
+    sub_turns = [
+        ProviderTurn(
+            assistant_text="",
+            tool_calls=[
+                ToolCall(
+                    id="c1",
+                    name="create_file",
+                    arguments={"path": "other.html", "content": "<html>x</html>"},
+                ),
+            ],
+        ),
+        ProviderTurn(assistant_text="tried to escape", tool_calls=[]),
+    ]
+    _install_factory(monkeypatch, [FakeSession(sub_turns)])
+
+    result = await run_subagent(
+        SubagentBrief(role="r", objective="o", file_paths=["hero.html"]),
+        parent,
+        model=Any,
+        request_settings={},
+        keys={"openai_api_key": "k"},
+    )
+    # The run completes (the error was a tool result, not a crash), but the
+    # out-of-scope file does not exist anywhere.
+    assert result.ok is True
+    assert parent.read("other.html") == ""
+    assert parent.read("index.html") == "<html>entry</html>"
 
 
 # --- spawn_agent tool dispatch -------------------------------------------------------
