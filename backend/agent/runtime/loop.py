@@ -61,6 +61,10 @@ class RuntimeConfig:
     stuck_warn_after: int = 3
     stuck_fail_after: int = 5
     event_id_factory: EventIdFactory = _default_event_id
+    # Allow the final answer text to become the document when no file was
+    # ever written (single-shot create flow). Subagents disable this: their
+    # final text is a chat summary, never a document.
+    finalize_from_text: bool = True
 
 
 class AgentRuntime:
@@ -354,12 +358,13 @@ class AgentRuntime:
             # inlines workspace-local scripts/styles for multi-file ones.
             return self.file_state.render_inline()
 
-        html = extract_html_content(assistant_text)
-        if html:
-            self.file_state.content = html
-            await self.emit(SetCodeEvent(content=html, source="finalize"))
-            if self.recorder is not None:
-                self.recorder.record_set_code(len(html), "finalize")
+        if self.config.finalize_from_text:
+            html = extract_html_content(assistant_text)
+            if html:
+                self.file_state.content = html
+                await self.emit(SetCodeEvent(content=html, source="finalize"))
+                if self.recorder is not None:
+                    self.recorder.record_set_code(len(html), "finalize")
 
         return self.file_state.content
 
