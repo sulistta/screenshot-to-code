@@ -1,65 +1,78 @@
 # Migration Status
 
-Living record of the platform migration: what shipped, what changed vs. the
-original plan, and where the seams for future work are. Companion to
-`target-architecture.md` (the design) and `research-notes.md` (the why).
+Living record of the platform migration. Companion to
+`target-architecture.md` (design), `research-notes.md` (why), and
+`migration-plan.md` (phasing).
 
-## Shipped (all committed, 345 backend tests green)
+## Pass 1 — foundation (commits `bf0e51a`…`be5d4ca`)
 
-| Phase | Commit | What |
-|---|---|---|
-| Runtime core | `6ed5cc1` | `agent/runtime/`: typed RunEvents, RunStatus machine, stuck detection, `ask_user` + QuestionGate; AgentEngine → facade |
-| Workspace | `45d4d80` | Multi-file `Workspace` with strict paths; `read_file`/`list_files`; previews + finalize render the inline self-contained entry |
-| Projects | `c6296a5` | Disk-backed `ProjectStore` (meta/workspace/transcript), `ProjectRunManager` (one run per project, persist-on-finish incl. cancel), project routes + `/ws/projects/{id}` with event replay |
-| Studio prompts | `ada740c` | `STUDIO_SYSTEM_PROMPT` (creative direction, anti-slop, engineering standards, ask-user policy), `research` tool, transcript-aware run prompts |
-| Studio frontend | `8078e60` | `/studio` route: project rail, conversation + question cards + activity timeline, workspace preview, reconnecting project socket; browser-verified E2E |
-| Subagents | `fc35ef1` | `spawn_agent` → scoped subagents (isolated workspace copy, depth-1, no questions), merge-back, orchestrator wiring |
-| Cleanup | `be5d4ca` | Dead protocol members, store actions, components, packages removed |
+Built `agent/runtime/` (typed events, status machine, stuck detection,
+ask_user gate), the multi-file Workspace, the durable project layer
+(store, run manager, routes, project socket), the studio system prompt
+with creative direction, scoped subagents, and the first Studio
+frontend. The legacy variant flow remained alongside.
 
-## Where the seams are (next steps, in rough order)
+## Pass 2 — product correction (commits `b4199e7`…)
 
-1. **Context compaction** — the event log is structured for it, but long
-   project runs still grow unbounded. Adopt keep-first/summarize-middle/
-   preserve-recent-tail over `ChatCompletionMessageParam` history at the
-   manager level; drop old screenshot/tool images first (they dominate).
-2. **Interaction/motion QA in the preview tool** — extend
-   `screenshot_preview` with viewport actions (click/type/scroll) and console
-   error capture so the agent perceives interactive behavior, not just stills.
-3. **Video references** as motion context (upload pipeline exists in the
-   variant flow; reuse for studio projects).
-4. **Swarm orchestration quality** — spawn_agent exists; teach the orchestrator
-   *when* to use it (complexity estimation, `auto` mode), and surface subagent
-   progress in the studio UI (events already flow through the runtime).
-5. **PROJECT.md/PLAN.md conventions** are prompted but not surfaced in the
-   UI; a "decisions" panel reading those artifacts would make direction
-   visible and editable.
-6. **Checkpoints** — snapshot `workspace/` per run boundary (cheap directory
-   copy) to give "restore files, keep conversation" in the studio.
-7. **Variant-flow ↔ studio bridge** — "promote this variant to a project"
-   endpoint + button.
+This pass made the product coherent per the second migration brief:
 
-## Deviations from the original plan (and why)
+1. **Four-generation behavior removed completely.** The `/generate-code`
+   WS pipeline, its middleware, the App.tsx orchestration with the
+   commit/variant graph, the variants grid, select-and-edit, the screen
+   recorder, and the screenshot-by-URL proxy are deleted — backend and
+   frontend (~12k lines). One prompt creates ONE project; iteration
+   happens in the conversation. The studio is the application root.
+2. **Project lifecycle.** Project → conversation → execution (run) →
+   tasks/agents → workspace changes → validation (preview/screenshot) →
+   iteration (checkpoint) → next execution. Iterations are created only
+   by COMPLETED runs — a checkpoint means validated state, not every
+   file write.
+3. **Primary + subagent model selection.** Chosen per project in the
+   run-config bar; resolved at execution start and snapshotted into the
+   run record; explicit-but-unavailable models fail loudly (no silent
+   fallback). Custom providers expose their individual model ids as
+   `custom:<model-id>` values that pin the exact model on both the
+   orchestrator and every spawned subagent.
+4. **Execution modes.** SINGLE removes the spawn tool from the run
+   entirely; AUTO leaves the decision to the orchestrator; SWARM
+   injects a decomposition-encouraging directive. All three verified
+   against a scripted provider.
+5. **Workflow UX.** Composer with reference-image attachments (picker,
+   paste), human phase feedback derived from tool activity ("Writing
+   the project", "Reviewing the result visually"), completed/failed/
+   stopped handoff cards, iterations bar linking historical snapshots,
+   categorized error messages, quiet visual language, product identity
+   ("Studio") replacing screenshot-to-code branding in user surfaces.
 
-- **Workspace served over HTTP** (phase 2) shipped as a *project* route in
-  phase 3 instead — during runs the workspace lives in memory; serving it
-  from the store avoids double-write machinery. The variant flow still uses
-  the inline-render path (zero-risk compatibility).
-- **Subagent scoping** uses copy-merge isolation rather than per-path locks:
-  with 1-page-scale workspaces, copies are trivially cheap and eliminate the
-  lock/timeout failure modes entirely. `run_subagents_parallel` exists for
-  fan-out, but the current orchestrator tool spawns sequentially-in-turn —
-  measured parallelism lands with the swarm-quality work above.
-- **Run status** kept `waiting_for_user` but dropped a separate `STUCK`
-  terminal status in the transport payload — stuck runs surface as `failed`
-  with a "stuck" reason string. (Runtime keeps the distinct enum.)
-- The `chunk` protocol member was removed outright (dead on both sides)
-  instead of being kept for compatibility — no client ever consumed it.
+## Dogfood verification (scripted OpenAI-compatible provider)
 
-## Invariants that held
+A scripted provider (`fake-main`/`fake-sub`/`fake-swarm`/`fake-hang`)
+exercised the real stack end to end: text-only creation, question flow
+with structured options and answer routing, iteration creation with
+change summaries, reload recovery (event replay + question persistence
+in the ring buffer), stop/cancel (idempotent; UI and backend converge),
+swarm delegation with merge-back. Model routing was verified from the
+provider's request log: primary and subagent requests carried the
+pinned models. Live LLM runs remain untested in this environment (no
+real keys — `.env` placeholders); the first real generation is the one
+remaining check.
 
-- The variant flow (`/generate-code`) works unchanged; all its tests pass
-  untouched except dead-member removal.
-- Every phase landed with: full pytest green, pyright clean on touched files
-  (no new diagnostics vs. baseline), frontend lint at the documented 25-problem
-  baseline, and jest green.
-- No API keys or settings formats broke; custom providers keep working.
+## Data migration
+
+Historical four-variant data lived only in browser memory (the old
+product had no persistence), so there is nothing to migrate; the old
+UI's disappearance retires it by construction. Persisted studio data
+(projects under `~/.screenshot-to-code/projects/`) predates nothing —
+its schema already carries the new fields (`config`, iterations) with
+backwards-compatible defaults. Eval data and run logs are untouched.
+
+## Next seams
+
+- Context compaction for long project runs.
+- Interactive preview QA (click/scroll/console capture) in the browser
+  tool; video references as motion context.
+- Select-and-edit (click an element to scope an edit) — the old UX had
+  it; the studio needs it re-expressed on the workspace preview.
+- PLAN.md-driven plan display (the prompt asks for the artifact; the UI
+  can render it as the user-visible plan checklist).
+- Subagent progress in the studio UI (runtime events already flow).
