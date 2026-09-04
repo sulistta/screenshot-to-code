@@ -35,6 +35,7 @@ def create_provider_session(
     custom_provider: Optional[CustomProvider] = None,
     custom_model_index: int = 0,
     ask_user_enabled: bool = False,
+    spawn_agent_enabled: bool = False,
 ) -> ProviderSession:
     canonical_tools = canonical_tool_definitions(
         image_generation_enabled=should_generate_images,
@@ -45,6 +46,7 @@ def create_provider_session(
         # screenshot_preview needs headless Chromium; skip it if it can't launch.
         screenshot_enabled=is_screenshot_preview_available(),
         ask_user_enabled=ask_user_enabled,
+        spawn_agent_enabled=spawn_agent_enabled,
     )
 
     if model in OPENAI_MODELS:

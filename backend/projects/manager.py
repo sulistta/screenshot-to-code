@@ -177,6 +177,7 @@ class ProjectRunManager:
                 ),
                 recorder=recorder,
                 ask_user_enabled=True,
+                spawn_agent_enabled=True,
             )
             assistant_reply_buffer: List[str] = []
 
@@ -186,9 +187,49 @@ class ProjectRunManager:
                 await self._broadcast(project_id, _event_to_wire(event, run_id))
 
             try:
+                from projects.subagents import SubagentBrief, run_subagent
+
+                async def subagent_runner(args: Dict[str, Any]) -> Any:
+                    from agent.tools.types import ToolExecutionResult
+
+                    brief = SubagentBrief(
+                        role=str(args.get("role", "specialist")),
+                        objective=str(args.get("objective", "")),
+                        file_paths=[
+                            path
+                            for path in list(args.get("file_paths") or [])
+                            if isinstance(path, str)
+                        ],
+                        guidance=str(args.get("guidance", "") or ""),
+                        parent_context=str(args.get("context", "") or ""),
+                    )
+                    outcome = await run_subagent(
+                        brief,
+                        workspace,
+                        model,
+                        settings,
+                        engine_keys,
+                    )
+                    return ToolExecutionResult(
+                        ok=outcome.ok,
+                        result={
+                            "summary": outcome.summary,
+                            "files": outcome.files,
+                            **({"error": outcome.error} if outcome.error else {}),
+                        },
+                        summary={
+                            "role": brief.role,
+                            "ok": outcome.ok,
+                            "files": outcome.files,
+                            "summary": outcome.summary[:300],
+                        },
+                    )
+
                 runtime = AgentRuntime(
                     session=session,
-                    tool_runtime=_build_tool_runtime(workspace, engine_keys, settings),
+                    tool_runtime=_build_tool_runtime(
+                        workspace, engine_keys, settings, subagent_runner
+                    ),
                     emit=emitting,
                     recorder=recorder,
                     interaction=gate,
@@ -286,7 +327,10 @@ def _event_to_wire(event: Any, run_id: str) -> Dict[str, Any]:
 
 
 def _build_tool_runtime(
-    workspace: Workspace, keys: Dict[str, Optional[str]], settings: Dict[str, Any]
+    workspace: Workspace,
+    keys: Dict[str, Optional[str]],
+    settings: Dict[str, Any],
+    subagent_runner: Optional[Any] = None,
 ) -> Any:
     from agent.tools import AgentToolRuntime
 
@@ -297,6 +341,7 @@ def _build_tool_runtime(
         openai_base_url=keys["openai_base_url"],
         gemini_api_key=keys["gemini_api_key"],
         replicate_api_key=keys["replicate_api_key"],
+        subagent_runner=subagent_runner,
     )
 
 

@@ -47,6 +47,7 @@ class AgentToolRuntime:
         asset_base_url: str = "",
         user_id: Optional[str] = None,
         option_codes: Optional[List[str]] = None,
+        subagent_runner: Optional[Any] = None,
     ):
         self.file_state = file_state
         self.should_generate_images = should_generate_images
@@ -58,6 +59,9 @@ class AgentToolRuntime:
         self.asset_base_url = asset_base_url
         self.user_id = user_id
         self.option_codes = option_codes or []
+        # Async callable(args dict) -> ToolExecutionResult, provided by hosts
+        # that support orchestrator runs; None disables spawn_agent.
+        self.subagent_runner = subagent_runner
 
     def _effective_replicate_api_key(self) -> str | None:
         return self.replicate_api_key or REPLICATE_API_KEY
@@ -84,6 +88,8 @@ class AgentToolRuntime:
             return self._list_files()
         if tool_call.name == "research":
             return await self._research(tool_call.arguments)
+        if tool_call.name == "spawn_agent":
+            return await self._spawn_agent(tool_call.arguments)
         if tool_call.name == "generate_images":
             return await self._generate_images(tool_call.arguments)
         if tool_call.name == "remove_backgrounds":
@@ -360,6 +366,20 @@ class AgentToolRuntime:
                 "entry_point": self.file_state.entry_point,
             },
         )
+
+    async def _spawn_agent(self, args: Dict[str, Any]) -> ToolExecutionResult:
+        if self.subagent_runner is None:
+            return ToolExecutionResult(
+                ok=False,
+                result={
+                    "error": (
+                        "spawn_agent is not available in this run; handle the "
+                        "work yourself."
+                    )
+                },
+                summary={"error": "Subagents unavailable"},
+            )
+        return await self.subagent_runner(args)
 
     async def _research(self, args: Dict[str, Any]) -> ToolExecutionResult:
         url = ensure_str(args.get("url")).strip()

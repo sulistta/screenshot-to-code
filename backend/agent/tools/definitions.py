@@ -98,6 +98,45 @@ def _research_schema() -> Dict[str, Any]:
     }
 
 
+def _spawn_agent_schema() -> Dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "role": {
+                "type": "string",
+                "description": "Short specialist title, e.g. 'motion designer', 'WebGL engineer', 'accessibility reviewer'.",
+            },
+            "objective": {
+                "type": "string",
+                "description": (
+                    "One self-contained unit of work: exactly what to build "
+                    "or change, with acceptance criteria. Include everything "
+                    "the subagent needs — it cannot see this conversation."
+                ),
+            },
+            "file_paths": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Workspace-relative paths the subagent may create or "
+                    "modify. Keep scopes disjoint between concurrent "
+                    "subagents."
+                ),
+                "minItems": 1,
+            },
+            "context": {
+                "type": "string",
+                "description": "Project context the subagent needs: design language, conventions, integration points.",
+            },
+            "guidance": {
+                "type": "string",
+                "description": "Optional specific instructions: approach, pitfalls, style constraints.",
+            },
+        },
+        "required": ["role", "objective", "file_paths"],
+    }
+
+
 def _image_schema() -> Dict[str, Any]:
     return {
         "type": "object",
@@ -256,6 +295,7 @@ def canonical_tool_definitions(
     asset_extraction_enabled: bool = True,
     screenshot_enabled: bool = True,
     ask_user_enabled: bool = False,
+    spawn_agent_enabled: bool = False,
 ) -> List[CanonicalToolDefinition]:
     tools: List[CanonicalToolDefinition] = [
         CanonicalToolDefinition(
@@ -393,6 +433,22 @@ def canonical_tool_definitions(
             parameters=_research_schema(),
         )
     )
+    if spawn_agent_enabled:
+        tools.append(
+            CanonicalToolDefinition(
+                name="spawn_agent",
+                description=(
+                    "Delegate one self-contained unit of work to a specialist "
+                    "subagent that runs in parallel with its own context. Use "
+                    "for genuinely separable work (asset production, an "
+                    "isolated component, a review pass) — not as a default. "
+                    "The subagent sees only the files you scope to it plus "
+                    "your brief, and returns a summary when done. Scopes of "
+                    "concurrent subagents must not overlap."
+                ),
+                parameters=_spawn_agent_schema(),
+            )
+        )
     tools.extend(
         [
             SAVE_ASSETS_TOOL_DEFINITION,
