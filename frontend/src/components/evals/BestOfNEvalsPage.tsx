@@ -210,7 +210,7 @@ function BestOfNEvalsPage() {
         case "6":
         case "7":
         case "8":
-        case "9":
+        case "9": {
           e.preventDefault();
           const modelIndex = parseInt(e.key) - 1;
           if (modelIndex < folderNames.length) {
@@ -223,6 +223,7 @@ function BestOfNEvalsPage() {
             }
           }
           break;
+        }
         case "t":
           e.preventDefault();
           handleVote(currentComparisonIndex, "tie");
@@ -236,6 +237,8 @@ function BestOfNEvalsPage() {
 
     window.addEventListener("keydown", handleKeyPress);
     return () => window.removeEventListener("keydown", handleKeyPress);
+    // Keyboard shortcuts intentionally close over the current handlers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentComparisonIndex, evals.length, folderNames.length]);
 
   // Add/remove folder input fields

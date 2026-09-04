@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import App from "./App.tsx";
+import StudioPage from "./components/studio/StudioPage.tsx";
 import "./index.css";
 import { Toaster } from "react-hot-toast";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
@@ -12,14 +12,12 @@ import PromptReportsPage from "./components/evals/PromptReportsPage.tsx";
 import AgentRunsPage from "./components/evals/AgentRunsPage.tsx";
 import EvalSessionsPage from "./components/evals/EvalSessionsPage.tsx";
 import EvalComparePage from "./components/evals/EvalComparePage.tsx";
-import StudioPage from "./components/studio/StudioPage.tsx";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <Router>
       <Routes>
-        <Route path="/" element={<App />} />
-        <Route path="/studio" element={<StudioPage />} />
+        <Route path="/" element={<StudioPage />} />
         <Route path="/evals" element={<AllEvalsPage />} />
         <Route path="/evals/best-of-n" element={<BestOfNEvalsPage />} />
         <Route path="/evals/run" element={<RunEvalsPage />} />

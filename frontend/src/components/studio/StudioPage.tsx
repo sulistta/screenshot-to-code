@@ -12,11 +12,28 @@ import {
 } from "@/lib/studioApi";
 import type { StudioActivityItem } from "@/store/studio-store";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import SettingsTab from "@/components/settings/SettingsTab";
+import { usePersistedState } from "@/hooks/usePersistedState";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
-import { IoArrowUp, IoAdd, IoStop, IoTrashOutline, IoRefreshOutline } from "react-icons/io5";
+import {
+  IoArrowUp,
+  IoAdd,
+  IoStop,
+  IoTrashOutline,
+  IoRefreshOutline,
+  IoSettingsOutline,
+} from "react-icons/io5";
+import { AppTheme, Settings } from "@/types";
+import { DEFAULT_SETTINGS } from "@/lib/defaultSettings";
 
 const RUN_STATUS_LABEL: Record<string, string> = {
   running: "Working…",
@@ -279,6 +296,15 @@ export default function StudioPage() {
   } = useStudioStore();
   const [newProjectName, setNewProjectName] = useState("");
   const [creating, setCreating] = useState(false);
+  const [settings, setSettings] = usePersistedState<Settings>(
+    DEFAULT_SETTINGS,
+    "setting"
+  );
+  const [appTheme, setAppTheme] = usePersistedState<AppTheme>(
+    AppTheme.SYSTEM,
+    "app-theme"
+  );
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [workspaceState, setWorkspaceState] = useState<
     "empty" | "ready" | "error"
   >("empty");
@@ -340,8 +366,17 @@ export default function StudioPage() {
     <div className="flex h-screen w-screen bg-background text-foreground">
       {/* Projects rail */}
       <aside className="flex w-60 flex-col border-r">
-        <div className="flex items-center gap-2 px-4 pt-4 pb-2">
+        <div className="flex items-center justify-between px-4 pt-4 pb-2">
           <span className="text-sm font-semibold">Studio</span>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7"
+            title="Settings"
+            onClick={() => setIsSettingsOpen(true)}
+          >
+            <IoSettingsOutline className="h-4 w-4" />
+          </Button>
         </div>
         <div className="px-3 pb-3">
           <div className="flex gap-1.5">
@@ -396,10 +431,10 @@ export default function StudioPage() {
         <Separator />
         <div className="px-4 py-3">
           <a
-            href="/"
+            href="/evals"
             className="text-xs text-muted-foreground hover:text-foreground"
           >
-            ← Variant flow
+            Model evals →
           </a>
         </div>
       </aside>
@@ -462,6 +497,20 @@ export default function StudioPage() {
           </div>
         )}
       </main>
+
+      <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Settings</DialogTitle>
+          </DialogHeader>
+          <SettingsTab
+            settings={settings}
+            setSettings={setSettings}
+            appTheme={appTheme}
+            setAppTheme={setAppTheme}
+          />
+        </DialogContent>
+      </Dialog>
 
       {error && (
         <div

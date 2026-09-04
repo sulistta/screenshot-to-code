@@ -305,40 +305,6 @@ function IntegrationsSection({
         </div>
       </div>
 
-      {/* Screenshot by URL */}
-      <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
-        <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
-          <h2 className="text-sm font-medium text-gray-900 dark:text-white">
-            Screenshot by URL
-          </h2>
-        </div>
-        <div className="p-4">
-          <p className="text-xs text-gray-500 dark:text-zinc-400">
-            If you want to use URLs directly instead of taking the screenshot
-            yourself, add a ScreenshotOne API key.{" "}
-            <a
-              href="https://screenshotone.com?via=screenshot-to-code"
-              className="text-violet-600 hover:text-violet-700 dark:text-violet-400 dark:hover:text-violet-300"
-              target="_blank"
-            >
-              Get 100 screenshots/mo for free.
-            </a>
-          </p>
-          <Input
-            id="screenshot-one-api-key"
-            className="mt-3"
-            placeholder="ScreenshotOne API key"
-            value={settings.screenshotOneApiKey || ""}
-            onChange={(e) =>
-              setSettings((s) => ({
-                ...s,
-                screenshotOneApiKey: e.target.value,
-              }))
-            }
-          />
-        </div>
-      </div>
-
       {/* Replicate (image generation/editing backend) */}
       {!IS_RUNNING_ON_CLOUD && (
         <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
