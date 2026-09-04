@@ -486,6 +486,10 @@ def resolve_execution_config(
         raise ValueError(f"Invalid execution mode: {mode}")
 
     available_by_value = available_models(keys)
+    # A user-registered custom provider makes the OpenAI-compatible model
+    # selectable regardless of built-in provider keys.
+    if active_custom_provider(settings) is not None:
+        available_by_value.append(Llm.OPENAI_COMPATIBLE.value)
     if primary:
         if primary not in available_by_value:
             raise ValueError(
@@ -508,6 +512,16 @@ def resolve_execution_config(
         "subagent_model": subagent,
         "execution_mode": mode,
     }
+
+
+def active_custom_provider(settings: Dict[str, Any]) -> Any:
+    try:
+        return resolve_active_custom_provider(
+            settings.get("customProviders"),
+            settings.get("activeCustomProviderId"),
+        )
+    except ValueError:
+        return None
 
 
 def available_models(keys: Dict[str, Optional[str]]) -> List[str]:

@@ -324,7 +324,13 @@ function QuestionCard({ send }: { send: (payload: Record<string, unknown>) => vo
   );
 }
 
-function ConversationColumn({ projectId }: { projectId: string }) {
+function ConversationColumn({
+  projectId,
+  settings,
+}: {
+  projectId: string;
+  settings: Settings;
+}) {
   const {
     transcript,
     activity,
@@ -344,12 +350,33 @@ function ConversationColumn({ projectId }: { projectId: string }) {
 
   const runSettings = useMemo(
     () => ({
-      generatedCodeConfig: "html_tailwind",
+      generatedCodeConfig: settings.generatedCodeConfig,
       primaryModel: project?.primaryModel ?? "",
       subagentModel: project?.subagentModel ?? "",
       executionMode: project?.executionMode ?? "auto",
+      // Provider credentials and feature flags travel with the run; the
+      // backend snapshots what it needs at execution start.
+      customProviders: settings.customProviders,
+      activeCustomProviderId: settings.activeCustomProviderId,
+      openAiApiKey: settings.openAiApiKey,
+      anthropicApiKey: settings.anthropicApiKey,
+      geminiApiKey: settings.geminiApiKey,
+      replicateApiKey: settings.replicateApiKey,
+      isImageGenerationEnabled: settings.isImageGenerationEnabled,
     }),
-    [project?.primaryModel, project?.subagentModel, project?.executionMode],
+    [
+      settings.generatedCodeConfig,
+      settings.customProviders,
+      settings.activeCustomProviderId,
+      settings.openAiApiKey,
+      settings.anthropicApiKey,
+      settings.geminiApiKey,
+      settings.replicateApiKey,
+      settings.isImageGenerationEnabled,
+      project?.primaryModel,
+      project?.subagentModel,
+      project?.executionMode,
+    ],
   );
 
   useEffect(() => {
@@ -778,7 +805,10 @@ export default function StudioPage() {
 
       <section className="flex w-[400px] shrink-0 flex-col border-r">
         {activeProjectId ? (
-          <ConversationColumn projectId={activeProjectId} />
+          <ConversationColumn
+            projectId={activeProjectId}
+            settings={settings}
+          />
         ) : (
           <div className="flex flex-1 items-center justify-center px-8 text-center text-sm text-muted-foreground">
             Select or create a project to start.
