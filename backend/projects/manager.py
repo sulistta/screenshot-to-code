@@ -536,6 +536,47 @@ def active_custom_provider(settings: Dict[str, Any]) -> Any:
         return None
 
 
+PROVIDER_LABELS = {
+    "openai": "OpenAI",
+    "anthropic": "Anthropic",
+    "gemini": "Google Gemini",
+}
+
+
+def available_model_entries(keys: Dict[str, Optional[str]]) -> List[Dict[str, str]]:
+    """Model entries with provider info for the configuration UI.
+
+    Built-in provider models come first (grouped by provider), then every
+    active custom provider's models as `custom:<model-id>`.
+    """
+    by_provider: Dict[str, List[str]] = {
+        "openai": [],
+        "anthropic": [],
+        "gemini": [],
+    }
+    for model in Llm:
+        if model is Llm.OPENAI_COMPATIBLE:
+            # Requires a user-registered custom provider; those models are
+            # listed separately with their provider's name.
+            continue
+        provider = MODEL_PROVIDER.get(model)
+        if provider and model.value not in by_provider[provider]:
+            if keys.get(f"{provider}_api_key") or {
+                "openai": OPENAI_API_KEY,
+                "anthropic": ANTHROPIC_API_KEY,
+                "gemini": GEMINI_API_KEY,
+            }.get(provider):
+                by_provider[provider].append(model.value)
+
+    entries: List[Dict[str, str]] = []
+    for provider in ("anthropic", "openai", "gemini"):
+        for value in by_provider[provider]:
+            entries.append(
+                {"value": value, "provider": provider, "group": PROVIDER_LABELS[provider]}
+            )
+    return entries
+
+
 def available_models(keys: Dict[str, Optional[str]]) -> List[str]:
     """Model values usable with the currently configured provider keys."""
     by_provider = {

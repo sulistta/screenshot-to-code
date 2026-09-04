@@ -25,6 +25,7 @@ export interface StudioActivityItem {
   kind: "thinking" | "assistant" | "tool" | "status";
   text: string;
   toolName?: string;
+  toolDetail?: string;
   ok?: boolean;
 }
 
@@ -196,6 +197,7 @@ export const useStudioStore = create<StudioState>((set) => ({
           kind: "tool",
           text: "",
           toolName: event.name ?? "tool",
+          toolDetail: summarizeToolInput(event.name, event.input),
         });
         return { activity };
       }
@@ -232,3 +234,47 @@ export const useStudioStore = create<StudioState>((set) => ({
     });
   },
 }));
+
+
+/** Human summary of a tool invocation for the activity list. */
+function summarizeToolInput(
+  name: string | undefined,
+  input: Record<string, unknown> | undefined,
+): string {
+  if (!input) return "";
+  const path = typeof input.path === "string" ? input.path : null;
+  switch (name) {
+    case "create_file":
+      return path ? `Created ${path}` : "Created a file";
+    case "edit_file":
+      return path ? `Edited ${path}` : "Edited the file";
+    case "read_file":
+      return path ? `Read ${path}` : "Read a file";
+    case "list_files":
+      return "Listed project files";
+    case "screenshot_preview":
+      return "Reviewed the result visually";
+    case "spawn_agent": {
+      const role = typeof input.role === "string" ? input.role : "specialist";
+      return `Delegated to ${role}`;
+    }
+    case "ask_user":
+      return typeof input.question === "string" ? input.question : "Asked a question";
+    case "research":
+      return typeof input.url === "string" ? `Checked ${input.url}` : "Checked a reference";
+    case "generate_images":
+      return "Generated visual assets";
+    case "edit_images":
+      return "Edited images";
+    case "remove_backgrounds":
+      return "Removed image backgrounds";
+    case "extract_assets":
+      return "Extracted assets from references";
+    case "save_assets":
+      return "Saved uploaded assets";
+    case "retrieve_option":
+      return "Retrieved a previous option";
+    default:
+      return "";
+  }
+}

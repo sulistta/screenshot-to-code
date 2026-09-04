@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { BsCheckCircleFill, BsExclamationTriangleFill } from "react-icons/bs";
-import { AppTheme, EditorTheme, Settings } from "../../types";
+import { AppTheme, Settings } from "../../types";
 import { capitalize } from "../../lib/utils";
 import {
   Select,
@@ -133,19 +133,7 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) { 
   );
 }
 
-function GeneralSection({
-  settings,
-  setSettings,
-  appTheme,
-  setAppTheme,
-}: Props) {
-  const handleThemeChange = (theme: EditorTheme) => {
-    setSettings((s) => ({
-      ...s,
-      editorTheme: theme,
-    }));
-  };
-
+function GeneralSection({ appTheme, setAppTheme }: Props) {
   return (
     <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
       <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
@@ -175,35 +163,6 @@ function GeneralSection({
               <SelectItem value={AppTheme.SYSTEM}>System</SelectItem>
               <SelectItem value={AppTheme.LIGHT}>Light</SelectItem>
               <SelectItem value={AppTheme.DARK}>Dark</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex items-center justify-between px-4 py-3">
-          <div>
-            <span className="text-sm text-gray-700 dark:text-zinc-300">
-              Code Editor Theme
-            </span>
-            <p className="mt-0.5 text-xs text-gray-500 dark:text-zinc-400">
-              Requires page refresh to update
-            </p>
-          </div>
-          <Select
-            name="editor-theme"
-            value={settings.editorTheme}
-            onValueChange={(value) => handleThemeChange(value as EditorTheme)}
-          >
-            <SelectTrigger className="w-[140px]">
-              <span className="notranslate" translate="no">
-                {capitalize(settings.editorTheme)}
-              </span>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="cobalt">
-                <span className="notranslate" translate="no">Cobalt</span>
-              </SelectItem>
-              <SelectItem value="espresso">
-                <span className="notranslate" translate="no">Espresso</span>
-              </SelectItem>
             </SelectContent>
           </Select>
         </div>

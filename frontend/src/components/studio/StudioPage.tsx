@@ -5,7 +5,6 @@ import {
   cancelRun,
   createProject,
   deleteProject,
-  getAvailableModels,
   getTranscript,
   iterationUrl,
   listIterations,
@@ -15,6 +14,13 @@ import {
   workspaceUrl,
 } from "@/lib/studioApi";
 import type { StudioActivityItem } from "@/store/studio-store";
+import ModelPicker from "@/components/studio/ModelPicker";
+import { modelDisplayName } from "@/components/studio/modelOptions";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import type { ExecutionMode, StudioProject } from "@/types/studio";
 import { Button } from "@/components/ui/button";
 import {
@@ -38,6 +44,8 @@ import {
   IoSettingsOutline,
   IoImageOutline,
   IoCloseCircle,
+  IoChevronDown,
+  IoCheckmarkSharp,
 } from "react-icons/io5";
 import { AppTheme, Settings } from "@/types";
 import { DEFAULT_SETTINGS } from "@/lib/defaultSettings";
@@ -74,12 +82,6 @@ function phaseFromActivity(activity: StudioActivityItem[]): string | null {
   return null;
 }
 
-function shortModelName(value: string): string {
-  if (!value) return "Best available";
-  // Drop the effort suffix for compact display.
-  return value.replace(/\s*\((no|low|medium|high|xhigh|max).*\)$/, "");
-}
-
 function ActivityItem({ item }: { item: StudioActivityItem }) {
   if (item.kind === "thinking") {
     return (
@@ -96,14 +98,21 @@ function ActivityItem({ item }: { item: StudioActivityItem }) {
     );
   }
   if (item.kind === "tool") {
+    const failed = item.ok === false;
+    const summary = item.toolDetail || item.toolName;
     return (
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <div
+        className={`flex items-center gap-2 text-xs ${
+          failed ? "text-destructive" : "text-muted-foreground"
+        }`}
+        title={item.toolName}
+      >
         <span
           className={`inline-block h-1 w-1 rounded-full ${
-            item.ok === false ? "bg-destructive" : "bg-emerald-600"
+            failed ? "bg-destructive" : "bg-emerald-600"
           }`}
         />
-        <span className="font-mono">{item.toolName}</span>
+        <span>{failed ? `${summary} — failed` : summary}</span>
       </div>
     );
   }
@@ -114,30 +123,7 @@ function ConfigBar({ project }: { project: StudioProject }) {
   const updateProject = useStudioStore((state) => state.updateProject);
   const setError = useStudioStore((state) => state.setError);
   const settings = useStudioStore((state) => state.settings);
-  const [models, setModels] = useState<string[]>([]);
   const [editing, setEditing] = useState(false);
-
-  useEffect(() => {
-    getAvailableModels().then((list) => {
-      // A registered custom provider exposes its individual model ids as
-      // "custom:<id>" options so primary/subagent picks route precisely.
-      const active = (settings?.customProviders ?? []).find(
-        (provider) =>
-          provider.enabled &&
-          provider.id === settings?.activeCustomProviderId,
-      );
-      const customOptions =
-        active?.models.map((model) => `custom:${model.id}`) ?? [];
-      const merged = [...list];
-      if (active && !merged.includes("OpenAI-compatible custom model")) {
-        merged.push("OpenAI-compatible custom model");
-      }
-      for (const option of customOptions) {
-        if (!merged.includes(option)) merged.push(option);
-      }
-      setModels(merged);
-    }).catch(() => undefined);
-  }, [settings?.customProviders, settings?.activeCustomProviderId]);
 
   const save = async (
     patch: Partial<StudioProject> & {
@@ -161,80 +147,88 @@ function ConfigBar({ project }: { project: StudioProject }) {
     }
   };
 
-  const selectClass =
-    "h-7 rounded-md border border-transparent hover:border-input bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer";
+  const modeLabel = MODE_LABEL[project.executionMode];
 
   if (!editing) {
     return (
       <button
-        className="group flex items-center gap-1.5 text-left text-[11px] text-muted-foreground/80 hover:text-muted-foreground"
+        className="flex items-center gap-2 text-left text-[11px] text-muted-foreground/80 hover:text-muted-foreground max-w-full overflow-hidden"
         onClick={() => setEditing(true)}
         title="Configure models and execution mode"
       >
-        <span>
-          {shortModelName(project.primaryModel)}
-          {project.subagentModel
-            ? ` · sub: ${shortModelName(project.subagentModel)}`
-            : ""}
-          {" · "}
-          {MODE_LABEL[project.executionMode]}
+        <span className="truncate">
+          {project.primaryModel
+            ? modelDisplayName(project.primaryModel)
+            : "Best available"}{" "}
+          · {modeLabel}
         </span>
       </button>
     );
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 py-1">
-      <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        Primary
-        <select
-          className={selectClass}
-          value={project.primaryModel}
-          onChange={(e) => {
-            save({ primaryModel: e.target.value });
-            if (!e.target.value) setEditing(false);
-          }}
-        >
-          <option value="">Best available</option>
-          {models.map((model) => (
-            <option key={model} value={model}>
-              {model}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        Subagents
-        <select
-          className={selectClass}
-          value={project.subagentModel}
-          onChange={(e) => {
-            save({ subagentModel: e.target.value });
-          }}
-        >
-          <option value="">Same as primary</option>
-          {models.map((model) => (
-            <option key={model} value={model}>
-              {model}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        Mode
-        <select
-          className={selectClass}
-          value={project.executionMode}
-          onChange={(e) => {
-            save({ executionMode: e.target.value as ExecutionMode });
-            setEditing(false);
-          }}
-        >
-          <option value="auto">Auto</option>
-          <option value="single">Single</option>
-          <option value="swarm">Swarm</option>
-        </select>
-      </label>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 py-0.5">
+      <ModelPicker
+        label="Primary"
+        value={project.primaryModel}
+        onChange={(value) => save({ primaryModel: value })}
+        settings={settings}
+      />
+      <ModelPicker
+        label="Subagents"
+        value={project.subagentModel}
+        placeholder="Same as primary"
+        onChange={(value) => save({ subagentModel: value })}
+        settings={settings}
+      />
+      <Popover open={editing} onOpenChange={setEditing}>
+        <PopoverTrigger asChild>
+          <button
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 -mx-1.5 text-[11px] text-foreground/80 hover:bg-secondary transition-colors"
+            title="Execution mode"
+          >
+            <span className="text-muted-foreground">Mode</span>
+            <span className="font-medium text-foreground">{modeLabel}</span>
+            <IoChevronDown className="h-3 w-3 text-muted-foreground" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-56 p-1.5">
+          <div className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            Execution mode
+          </div>
+          {(
+            [
+              ["auto", "Auto", "The agent decides when delegating helps"],
+              ["single", "Single", "One agent; no subagents"],
+              ["swarm", "Swarm", "Scoped specialists on big builds"],
+            ] as const
+          ).map(([mode, name, description]) => {
+            const selected = project.executionMode === mode;
+            return (
+              <button
+                key={mode}
+                className={`flex w-full flex-col items-start rounded-md px-2 py-1.5 text-left transition-colors ${
+                  selected ? "bg-secondary" : "hover:bg-secondary/60"
+                }`}
+                onClick={() => {
+                  save({ executionMode: mode });
+                  setEditing(false);
+                }}
+              >
+                <span className="flex w-full items-center justify-between text-xs font-medium">
+                  {name}
+                  {selected && (
+                    <IoCheckmarkSharp className="h-3.5 w-3.5 text-emerald-600" />
+                  )}
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  {description}
+                </span>
+              </button>
+            );
+          })}
+        </PopoverContent>
+      </Popover>
       <button
         className="text-[11px] text-muted-foreground hover:text-foreground"
         onClick={() => setEditing(false)}
@@ -704,6 +698,21 @@ export default function StudioPage() {
   useEffect(() => {
     useStudioStore.getState().setSettings(settings);
   }, [settings]);
+
+  // Apply the app theme to the document (dark-mode class on html/body).
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      const dark =
+        appTheme === AppTheme.DARK ||
+        (appTheme === AppTheme.SYSTEM && media.matches);
+      document.documentElement.classList.toggle("dark", dark);
+      document.body.classList.toggle("dark", dark);
+    };
+    apply();
+    media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
+  }, [appTheme]);
 
   const activeProject = projects.find((p) => p.id === activeProjectId);
 

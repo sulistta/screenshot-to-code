@@ -211,13 +211,16 @@ async def serve_iteration_entry(project_id: str, iteration_id: str) -> Any:
 
 @router.get("/api/models")
 async def available_models_route() -> Dict[str, Any]:
-    """Models selectable in the run configuration, with provider labels."""
-    from projects.manager import available_models
+    """Models selectable in run configuration, grouped-ready.
+
+    Each entry carries the provider so the UI can group them; custom
+    providers contribute their individual model ids.
+    """
+    from projects.manager import available_model_entries
     from projects.manager import extract_engine_keys
 
     keys = extract_engine_keys({})
-    models = available_models(keys)
-    return {"models": models}
+    return {"models": available_model_entries(keys)}
 
 
 @router.get("/workspace/{project_id}/{path:path}")
