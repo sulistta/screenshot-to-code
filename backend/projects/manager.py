@@ -498,7 +498,11 @@ def resolve_execution_config(
                 "pick another model."
             )
     else:
-        primary = default_model_value(keys)
+        # With no built-in keys, an active custom provider is the default.
+        if active_custom_provider(settings) is not None:
+            primary = Llm.OPENAI_COMPATIBLE.value
+        else:
+            primary = default_model_value(keys)
     if subagent and subagent not in available_by_value:
         raise ValueError(
             f"Subagent model {subagent!r} is not available with the "

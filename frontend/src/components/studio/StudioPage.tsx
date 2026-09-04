@@ -134,9 +134,22 @@ function ConfigBar({ project }: { project: StudioProject }) {
     }).catch(() => undefined);
   }, [settings?.customProviders, settings?.activeCustomProviderId]);
 
-  const save = async (patch: Partial<StudioProject>) => {
+  const save = async (
+    patch: Partial<StudioProject> & {
+      primaryModel?: string;
+      subagentModel?: string;
+      executionMode?: ExecutionMode;
+    },
+  ) => {
     try {
-      const updated = await updateProjectApi(project.id, patch);
+      // Always send the full configuration: partial PATCHes raced with
+      // re-renders between saves and could drop freshly-picked values.
+      const full = {
+        primaryModel: patch.primaryModel ?? project.primaryModel,
+        subagentModel: patch.subagentModel ?? project.subagentModel,
+        executionMode: patch.executionMode ?? project.executionMode,
+      };
+      const updated = await updateProjectApi(project.id, full);
       updateProject(updated);
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
