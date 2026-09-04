@@ -1,11 +1,23 @@
 import { create } from "zustand";
 import type {
+  StudioIteration,
   StudioProject,
   StudioQuestion,
   StudioRunEvent,
   StudioRunStatus,
   StudioTranscriptMessage,
 } from "@/types/studio";
+
+export interface RunOutcome {
+  status: StudioRunStatus;
+  iterationId: string | null;
+  filesChanged: string[];
+  config: {
+    primary_model: string;
+    subagent_model: string;
+    execution_mode: string;
+  } | null;
+}
 
 export interface StudioActivityItem {
   id: string;
@@ -27,8 +39,13 @@ interface StudioState {
   runStatus: StudioRunStatus | null;
   activeQuestion: StudioQuestion | null;
   error: string | null;
+  iterations: StudioIteration[];
+  lastOutcome: RunOutcome | null;
+  currentRunConfig: RunOutcome["config"];
 
   setProjects: (projects: StudioProject[]) => void;
+  updateProject: (project: StudioProject) => void;
+  setIterations: (iterations: StudioIteration[]) => void;
   setActiveProject: (projectId: string | null) => void;
   setTranscript: (messages: StudioTranscriptMessage[]) => void;
   setPreviewContent: (content: string | null) => void;
@@ -51,8 +68,16 @@ export const useStudioStore = create<StudioState>((set) => ({
   runStatus: null,
   activeQuestion: null,
   error: null,
+  iterations: [],
+  lastOutcome: null,
+  currentRunConfig: null,
 
   setProjects: (projects) => set({ projects }),
+  updateProject: (project) =>
+    set((state) => ({
+      projects: state.projects.map((p) => (p.id === project.id ? project : p)),
+    })),
+  setIterations: (iterations) => set({ iterations }),
   bumpPreview: () => set((state) => ({ previewNonce: state.previewNonce + 1 })),
   setActiveProject: (projectId) =>
     set({
@@ -63,6 +88,9 @@ export const useStudioStore = create<StudioState>((set) => ({
       runStatus: null,
       activeQuestion: null,
       error: null,
+      iterations: [],
+      lastOutcome: null,
+      currentRunConfig: null,
     }),
   setTranscript: (transcript) => set({ transcript }),
   setPreviewContent: (content) => set({ previewContent: content }),
@@ -72,6 +100,12 @@ export const useStudioStore = create<StudioState>((set) => ({
   handleEvent: (event) => {
     if (event.type === "run_status") {
       const status = event.status as StudioRunStatus | undefined;
+      if (status === "running") {
+        set({
+          currentRunConfig: event.config ?? null,
+          lastOutcome: null,
+        });
+      }
       set((state) => {
         if (status && status !== "running") {
           // Move the live activity into the transcript as the run's reply.
@@ -83,6 +117,12 @@ export const useStudioStore = create<StudioState>((set) => ({
           return {
             runStatus: status,
             activeQuestion: null,
+            lastOutcome: {
+              status,
+              iterationId: event.iterationId ?? null,
+              filesChanged: event.filesChanged ?? [],
+              config: state.currentRunConfig,
+            },
             transcript:
               replyText && state.activeProjectId
                 ? [

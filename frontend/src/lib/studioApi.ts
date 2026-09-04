@@ -2,6 +2,7 @@ import type {
   StudioProject,
   StudioTranscriptMessage,
   StudioRunEvent,
+  StudioIteration,
 } from "@/types/studio";
 
 const HTTP_BASE = import.meta.env.VITE_HTTP_BACKEND_URL || "";
@@ -35,6 +36,45 @@ export async function deleteProject(projectId: string): Promise<void> {
   if (!response.ok) throw new Error("Failed to delete project");
 }
 
+export async function updateProject(
+  projectId: string,
+  patch: Partial<Pick<StudioProject, "name" | "brief" | "primaryModel" | "subagentModel" | "executionMode">>,
+): Promise<StudioProject> {
+  const response = await fetch(`${HTTP_BASE}/api/projects/${projectId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!response.ok) throw new Error("Failed to update project");
+  const data = await response.json();
+  return data.project;
+}
+
+export async function listIterations(
+  projectId: string,
+): Promise<StudioIteration[]> {
+  const response = await fetch(
+    `${HTTP_BASE}/api/projects/${projectId}/iterations`,
+  );
+  if (!response.ok) throw new Error("Failed to load iterations");
+  const data = await response.json();
+  return data.iterations;
+}
+
+export function iterationUrl(
+  projectId: string,
+  iterationId: string,
+): string {
+  return `${HTTP_BASE}/api/projects/${projectId}/iterations/${iterationId}`;
+}
+
+export async function getAvailableModels(): Promise<string[]> {
+  const response = await fetch(`${HTTP_BASE}/api/models`);
+  if (!response.ok) return [];
+  const data = await response.json();
+  return data.models;
+}
+
 export async function getTranscript(
   projectId: string,
 ): Promise<StudioTranscriptMessage[]> {
@@ -50,13 +90,14 @@ export async function startRun(
   projectId: string,
   text: string,
   settings: Record<string, unknown>,
+  images: string[] = [],
 ): Promise<string> {
   const response = await fetch(
     `${HTTP_BASE}/api/projects/${projectId}/runs`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, settings }),
+      body: JSON.stringify({ text, settings, images }),
     },
   );
   if (!response.ok) {
