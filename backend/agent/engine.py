@@ -9,6 +9,7 @@ from codegen.utils import extract_html_content
 from llm import Llm
 
 from agent.providers.base import ExecutedToolCall, ProviderSession, StreamEvent
+from agent.providers.custom import CustomProvider
 from agent.providers.factory import create_provider_session
 from agent.state import AgentFileState, seed_file_state_from_messages
 from agent.tools import (
@@ -67,7 +68,7 @@ class AgentEngine:
         initial_file_state: Optional[Dict[str, str]] = None,
         option_codes: Optional[List[str]] = None,
         recorder: Optional[AgentRunRecorder] = None,
-        openai_compatible_model: Optional[str] = None,
+        openai_compatible: Optional[CustomProvider] = None,
     ):
         self.send_message = send_message
         self.variant_index = variant_index
@@ -79,7 +80,7 @@ class AgentEngine:
         self.replicate_api_key = replicate_api_key
         self.should_generate_images = should_generate_images
         self.should_extract_assets = should_extract_assets
-        self.openai_compatible_model = openai_compatible_model
+        self.openai_compatible = openai_compatible
 
         self.file_state = AgentFileState()
         if initial_file_state and initial_file_state.get("content"):
@@ -352,7 +353,8 @@ class AgentEngine:
                 self.should_extract_assets and bool(self.tool_runtime.input_images)
             ),
             recorder=self.recorder,
-            openai_compatible_model=self.openai_compatible_model,
+            custom_provider=self.openai_compatible,
+            custom_model_index=self.variant_index,
         )
         try:
             result = await self._run_with_session(session)

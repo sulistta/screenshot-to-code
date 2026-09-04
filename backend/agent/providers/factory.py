@@ -7,9 +7,13 @@ from openai.types.chat import ChatCompletionMessageParam
 
 from agent.providers.anthropic import AnthropicProviderSession, serialize_anthropic_tools
 from agent.providers.base import ProviderSession
+from agent.providers.custom import CustomProvider
 from agent.providers.gemini import GeminiProviderSession, serialize_gemini_tools
 from agent.providers.openai import OpenAIProviderSession, serialize_openai_tools
-from agent.providers.openai_compatible import OpenAICompatibleProviderSession
+from agent.providers.openai_compatible import (
+    OpenAICompatibleProviderSession,
+    OpenAICompatibleResponsesProviderSession,
+)
 from agent.tools import canonical_tool_definitions
 from config import REPLICATE_API_KEY
 from fs_logging.agent_runs import AgentRunRecorder
@@ -28,7 +32,8 @@ def create_provider_session(
     replicate_api_key: Optional[str],
     should_extract_assets: bool = True,
     recorder: Optional[AgentRunRecorder] = None,
-    openai_compatible_model: Optional[str] = None,
+    custom_provider: Optional[CustomProvider] = None,
+    custom_model_index: int = 0,
 ) -> ProviderSession:
     canonical_tools = canonical_tool_definitions(
         image_generation_enabled=should_generate_images,
@@ -42,19 +47,30 @@ def create_provider_session(
 
     if model in OPENAI_MODELS:
         if model == Llm.OPENAI_COMPATIBLE:
-            if not openai_base_url or not openai_compatible_model:
-                raise Exception(
-                    "OpenAI-compatible Base URL and model ID are required."
-                )
+            if custom_provider is None:
+                raise Exception("OpenAI-compatible provider configuration is missing.")
+            # Variants cycle across the provider's registered models.
+            model_id = custom_provider.models[
+                custom_model_index % len(custom_provider.models)
+            ]
             client = AsyncOpenAI(
-                api_key=openai_api_key or "not-needed",
-                base_url=openai_base_url,
+                api_key=custom_provider.api_key or "not-needed",
+                base_url=custom_provider.base_url,
+                default_headers=custom_provider.headers or None,
             )
+            tools = serialize_openai_tools(canonical_tools)
+            if custom_provider.protocol == "responses":
+                return OpenAICompatibleResponsesProviderSession(
+                    client=client,
+                    model_name=model_id,
+                    prompt_messages=prompt_messages,
+                    tools=tools,
+                )
             return OpenAICompatibleProviderSession(
                 client=client,
-                model_name=openai_compatible_model,
+                model_name=model_id,
                 prompt_messages=prompt_messages,
-                tools=serialize_openai_tools(canonical_tools),
+                tools=tools,
             )
         if not openai_api_key:
             raise Exception("OpenAI API key is missing.")

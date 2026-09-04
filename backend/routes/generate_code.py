@@ -62,6 +62,7 @@ from uploaded_assets import (
     infer_local_asset_base_url,
 )
 from agent.runner import Agent
+from agent.providers.custom import CustomProvider, resolve_active_custom_provider
 from fs_logging.agent_runs import AgentRunRecorder
 from routes.model_choice_sets import (
     ALL_KEYS_MODELS_DEFAULT,
@@ -265,7 +266,7 @@ class ExtractedParams:
     history: List[PromptHistoryMessage]
     file_state: Dict[str, str] | None
     option_codes: List[str]
-    openai_compatible_model: str | None = None
+    openai_compatible: CustomProvider | None = None
     should_extract_assets: bool = True
     asset_base_url: str = ""
     design_system: str | None = None
@@ -324,6 +325,23 @@ class ParameterExtractionStage:
             )
         if not openai_base_url:
             print("Using official OpenAI URL")
+
+        # Custom provider (user-registered OpenAI-compatible endpoint)
+        custom_provider: CustomProvider | None = None
+        try:
+            custom_provider = resolve_active_custom_provider(
+                params.get("customProviders"),
+                params.get("activeCustomProviderId"),
+            )
+        except ValueError as exc:
+            await self.throw_error(str(exc))
+            raise ValueError(str(exc)) from exc
+        if custom_provider is not None:
+            print(
+                f"Using custom provider '{custom_provider.name}' "
+                f"({custom_provider.protocol}) for generation"
+            )
+
         openai_compatible_model = self._get_from_settings_dialog_or_env(
             params, "openAiCompatibleModel", None
         )
@@ -332,6 +350,18 @@ class ParameterExtractionStage:
                 "A Base URL is required for an OpenAI-compatible provider."
             )
             raise ValueError("Missing OpenAI-compatible Base URL")
+        # Older clients configure the compatible provider via flat fields;
+        # normalize them into a provider entry so downstream code has a
+        # single path.
+        if custom_provider is None and openai_compatible_model and openai_base_url:
+            custom_provider = CustomProvider(
+                id="legacy",
+                name="OpenAI-compatible",
+                base_url=openai_base_url.rstrip("/"),
+                api_key=openai_api_key,
+                protocol="chat_completions",
+                models=[openai_compatible_model],
+            )
 
         # Feature preferences default to enabled for older clients.
         should_generate_images = bool(params.get("isImageGenerationEnabled", True))
@@ -392,7 +422,7 @@ class ParameterExtractionStage:
             gemini_api_key=gemini_api_key,
             replicate_api_key=replicate_api_key,
             openai_base_url=openai_base_url,
-            openai_compatible_model=openai_compatible_model,
+            openai_compatible=custom_provider,
             generation_type=generation_type,
             prompt=prompt,
             history=history,
@@ -431,7 +461,7 @@ class ModelSelectionStage:
         openai_api_key: str | None,
         anthropic_api_key: str | None,
         gemini_api_key: str | None = None,
-        openai_compatible_model: str | None = None,
+        custom_provider: CustomProvider | None = None,
     ) -> List[Llm]:
         """Select appropriate models based on available API keys"""
         try:
@@ -440,7 +470,7 @@ class ModelSelectionStage:
                 if input_mode == "video" or generation_type == "update"
                 else NUM_VARIANTS
             )
-            if openai_compatible_model:
+            if custom_provider:
                 return [Llm.OPENAI_COMPATIBLE] * num_variants
             variant_models = self._get_variant_models(
                 generation_type,
@@ -583,7 +613,7 @@ class AgenticGenerationStage:
         stack: str | None = None,
         input_mode: str | None = None,
         generation_type: str | None = None,
-        openai_compatible_model: str | None = None,
+        openai_compatible: CustomProvider | None = None,
     ):
         self.send_message = send_message
         self.openai_api_key = openai_api_key
@@ -603,7 +633,7 @@ class AgenticGenerationStage:
         self.stack = stack
         self.input_mode = input_mode
         self.generation_type = generation_type
-        self.openai_compatible_model = openai_compatible_model
+        self.openai_compatible = openai_compatible
 
     async def process_variants(
         self,
@@ -673,7 +703,7 @@ class AgenticGenerationStage:
                 initial_file_state=self.file_state,
                 option_codes=self.option_codes,
                 recorder=recorder,
-                openai_compatible_model=self.openai_compatible_model,
+                openai_compatible=self.openai_compatible,
             )
             completion = await runner.run(model, prompt_messages)
             if completion:
@@ -835,14 +865,24 @@ class CodeGenerationMiddleware(Middleware):
                 openai_api_key=context.extracted_params.openai_api_key,
                 anthropic_api_key=context.extracted_params.anthropic_api_key,
                 gemini_api_key=context.extracted_params.gemini_api_key,
-                openai_compatible_model=context.extracted_params.openai_compatible_model,
+                custom_provider=context.extracted_params.openai_compatible,
             )
             if IS_DEBUG_ENABLED:
+                custom_provider = context.extracted_params.openai_compatible
+                model_labels = []
+                for index, model in enumerate(context.variant_models):
+                    if model == Llm.OPENAI_COMPATIBLE and custom_provider:
+                        provider_models = custom_provider.models
+                        model_labels.append(
+                            provider_models[index % len(provider_models)]
+                        )
+                    else:
+                        model_labels.append(model.value)
                 await context.send_message(
                     "variantModels",
                     None,
                     0,
-                    {"models": [model.value for model in context.variant_models]},
+                    {"models": model_labels},
                     None,
                 )
 
@@ -861,7 +901,7 @@ class CodeGenerationMiddleware(Middleware):
                 stack=str(context.extracted_params.stack),
                 input_mode=str(context.extracted_params.input_mode),
                 generation_type=context.extracted_params.generation_type,
-                openai_compatible_model=context.extracted_params.openai_compatible_model,
+                openai_compatible=context.extracted_params.openai_compatible,
             )
 
             context.variant_completions = await generation_stage.process_variants(

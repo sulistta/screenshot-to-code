@@ -36,6 +36,7 @@ import HistoryDisplay from "./components/history/HistoryDisplay";
 import PreviewPane from "./components/preview/PreviewPane";
 import StartPane from "./components/start-pane/StartPane";
 import SettingsTab from "./components/settings/SettingsTab";
+import { migrateProviderSettings } from "./lib/providers";
 import DesignSystemsModal from "./components/settings/DesignSystemsModal";
 import { AiEditCommit, Commit } from "./components/commits/types";
 import { createCommit } from "./components/commits/utils";
@@ -91,6 +92,8 @@ function App() {
       openAiApiKey: null,
       openAiBaseURL: null,
       openAiCompatibleModel: null,
+      customProviders: [],
+      activeCustomProviderId: null,
       replicateApiKey: null,
       anthropicApiKey: null,
       geminiApiKey: null,
@@ -188,6 +191,17 @@ function App() {
       }));
     }
   }, [settings, setSettings]);
+
+  // Older settings only had flat OpenAI-compatible fields; import them into
+  // the provider registry once and clear the flat fields.
+  useEffect(() => {
+    const patch = migrateProviderSettings(settings as unknown as Record<string, unknown>);
+    if (patch) {
+      setSettings((prev) => ({ ...prev, ...patch }));
+    }
+    // Runs once on mount; the migration is idempotent afterwards.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
 
   useEffect(() => {

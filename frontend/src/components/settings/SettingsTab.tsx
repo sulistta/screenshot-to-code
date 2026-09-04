@@ -11,6 +11,7 @@ import {
 import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
 import { HTTP_BACKEND_URL, IS_RUNNING_ON_CLOUD } from "../../config";
+import ProvidersSection from "./ProvidersSection";
 
 interface Props {
   settings: Settings;
@@ -19,11 +20,20 @@ interface Props {
   setAppTheme: React.Dispatch<React.SetStateAction<AppTheme>>;
 }
 
-function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
-  // null = not yet known (loading / unreachable); otherwise the backend's answer.
+type SettingsSection = "general" | "providers" | "generation" | "integrations";
+
+const SECTIONS: { id: SettingsSection; label: string }[] = [
+  { id: "general", label: "General" },
+  { id: "providers", label: "Providers" },
+  { id: "generation", label: "Generation" },
+  { id: "integrations", label: "Integrations" },
+];
+
+function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {  // null = not yet known (loading / unreachable); otherwise the backend's answer.
   const [screenshotPreviewAvailable, setScreenshotPreviewAvailable] = useState<
     boolean | null
   >(null);
+  const [section, setSection] = useState<SettingsSection>("general");
 
   useEffect(() => {
     let cancelled = false;
@@ -42,6 +52,93 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
     };
   }, []);
 
+  return (
+    <div className="flex-1 overflow-hidden">
+      <div className="flex h-full flex-col px-4 py-4 lg:px-6 lg:py-6">
+        {/* Header */}
+        <div className="mb-4">
+          <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
+            Settings
+          </h1>
+        </div>
+
+        <div className="flex min-h-0 flex-1 gap-8">
+          {/* Section navigation */}
+          <nav className="hidden w-40 shrink-0 flex-col gap-1 sm:flex">
+            {SECTIONS.map((entry) => (
+              <button
+                key={entry.id}
+                onClick={() => setSection(entry.id)}
+                className={`rounded-md px-3 py-2 text-left text-sm transition-colors ${
+                  section === entry.id
+                    ? "bg-gray-100 font-medium text-gray-900 dark:bg-zinc-800 dark:text-white"
+                    : "text-gray-500 hover:bg-gray-50 hover:text-gray-700 dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-200"
+                }`}
+              >
+                {entry.label}
+              </button>
+            ))}
+          </nav>
+
+          {/* Mobile section switcher */}
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pb-6">
+            <div className="mb-4 sm:hidden">
+              <Select
+                value={section}
+                onValueChange={(value) => setSection(value as SettingsSection)}
+              >
+                <SelectTrigger className="w-full">
+                  {SECTIONS.find((entry) => entry.id === section)?.label}
+                </SelectTrigger>
+                <SelectContent>
+                  {SECTIONS.map((entry) => (
+                    <SelectItem key={entry.id} value={entry.id}>
+                      {entry.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="max-w-2xl">
+              {section === "general" && (
+                <GeneralSection
+                  settings={settings}
+                  setSettings={setSettings}
+                  appTheme={appTheme}
+                  setAppTheme={setAppTheme}
+                />
+              )}
+              {section === "providers" && (
+                <ProvidersSection settings={settings} setSettings={setSettings} />
+              )}
+              {section === "generation" && (
+                <GenerationSection
+                  settings={settings}
+                  setSettings={setSettings}
+                />
+              )}
+              {section === "integrations" && (
+                <IntegrationsSection
+                  screenshotPreviewAvailable={screenshotPreviewAvailable}
+                  settings={settings}
+                  setSettings={setSettings}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GeneralSection({
+  settings,
+  setSettings,
+  appTheme,
+  setAppTheme,
+}: Props) {
   const handleThemeChange = (theme: EditorTheme) => {
     setSettings((s) => ({
       ...s,
@@ -50,346 +147,228 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="px-4 py-4 lg:px-6 lg:py-6">
-        {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Settings
-          </h1>
+    <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
+      <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
+        <h2 className="text-sm font-medium text-gray-900 dark:text-white">
+          Theme
+        </h2>
+      </div>
+      <div className="divide-y divide-gray-100 dark:divide-zinc-700">
+        <div className="flex items-center justify-between px-4 py-3">
+          <div>
+            <span className="text-sm text-gray-700 dark:text-zinc-300">
+              App Theme
+            </span>
+            <p className="mt-0.5 text-xs text-gray-500 dark:text-zinc-400">
+              System default, with optional light/dark override
+            </p>
+          </div>
+          <Select
+            name="app-theme"
+            value={appTheme}
+            onValueChange={(value) => setAppTheme(value as AppTheme)}
+          >
+            <SelectTrigger className="w-[140px]">
+              {capitalize(appTheme)}
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={AppTheme.SYSTEM}>System</SelectItem>
+              <SelectItem value={AppTheme.LIGHT}>Light</SelectItem>
+              <SelectItem value={AppTheme.DARK}>Dark</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-
-        <div className="mx-auto max-w-lg space-y-6">
-          {/* Theme */}
-          <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
-            <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
-              <h2 className="text-sm font-medium text-gray-900 dark:text-white">
-                Theme
-              </h2>
-            </div>
-            <div className="divide-y divide-gray-100 dark:divide-zinc-700">
-              <div className="flex items-center justify-between px-4 py-3">
-                <div>
-                  <span className="text-sm text-gray-700 dark:text-zinc-300">
-                    App Theme
-                  </span>
-                  <p className="mt-0.5 text-xs text-gray-500 dark:text-zinc-400">
-                    System default, with optional light/dark override
-                  </p>
-                </div>
-                <Select
-                  name="app-theme"
-                  value={appTheme}
-                  onValueChange={(value) => setAppTheme(value as AppTheme)}
-                >
-                  <SelectTrigger className="w-[140px]">
-                    {capitalize(appTheme)}
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={AppTheme.SYSTEM}>System</SelectItem>
-                    <SelectItem value={AppTheme.LIGHT}>Light</SelectItem>
-                    <SelectItem value={AppTheme.DARK}>Dark</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-center justify-between px-4 py-3">
-                <div>
-                  <span className="text-sm text-gray-700 dark:text-zinc-300">
-                    Code Editor Theme
-                  </span>
-                  <p className="mt-0.5 text-xs text-gray-500 dark:text-zinc-400">
-                    Requires page refresh to update
-                  </p>
-                </div>
-                <Select
-                  name="editor-theme"
-                  value={settings.editorTheme}
-                  onValueChange={(value) =>
-                    handleThemeChange(value as EditorTheme)
-                  }
-                >
-                  <SelectTrigger className="w-[140px]">
-                    <span className="notranslate" translate="no">
-                      {capitalize(settings.editorTheme)}
-                    </span>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="cobalt">
-                      <span className="notranslate" translate="no">Cobalt</span>
-                    </SelectItem>
-                    <SelectItem value="espresso">
-                      <span className="notranslate" translate="no">Espresso</span>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+        <div className="flex items-center justify-between px-4 py-3">
+          <div>
+            <span className="text-sm text-gray-700 dark:text-zinc-300">
+              Code Editor Theme
+            </span>
+            <p className="mt-0.5 text-xs text-gray-500 dark:text-zinc-400">
+              Requires page refresh to update
+            </p>
           </div>
-
-          {/* API Keys */}
-          <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
-            <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
-              <h2 className="text-sm font-medium text-gray-900 dark:text-white">
-                API Keys
-              </h2>
-            </div>
-            <div className="space-y-4 p-4">
-              <div>
-                <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">
-                  OpenAI API key
-                </p>
-                <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
-                  Only stored in your browser. Never stored on servers. Overrides
-                  your .env config.
-                </p>
-                <Input
-                  id="openai-api-key"
-                  className="mt-2"
-                  placeholder="OpenAI API key"
-                  value={settings.openAiApiKey || ""}
-                  onChange={(e) =>
-                    setSettings((s) => ({
-                      ...s,
-                      openAiApiKey: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-
-              {!IS_RUNNING_ON_CLOUD && (
-                <div className="space-y-4 rounded-md border border-gray-200 p-3 dark:border-zinc-700">
-                  <div>
-                    <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">
-                      OpenAI-compatible provider
-                    </p>
-                    <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
-                      Set both fields to use a custom provider for every generated variant.
-                      The API key above is optional for local providers without authentication.
-                    </p>
-                  </div>
-                  <div>
-                  <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">
-                    Base URL
-                  </p>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
-                    Include the provider's API prefix, usually ending in /v1.
-                  </p>
-                  <Input
-                    id="openai-base-url"
-                    className="mt-2"
-                    placeholder="https://provider.example.com/v1"
-                    value={settings.openAiBaseURL || ""}
-                    onChange={(e) =>
-                      setSettings((s) => ({
-                        ...s,
-                        openAiBaseURL: e.target.value,
-                      }))
-                    }
-                  />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">
-                      Model ID
-                    </p>
-                    <Input
-                      id="openai-compatible-model"
-                      className="mt-2"
-                      placeholder="provider-model-name"
-                      value={settings.openAiCompatibleModel || ""}
-                      onChange={(e) =>
-                        setSettings((s) => ({
-                          ...s,
-                          openAiCompatibleModel: e.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">
-                  Anthropic API key
-                </p>
-                <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
-                  Only stored in your browser. Never stored on servers. Overrides
-                  your .env config.
-                </p>
-                <Input
-                  id="anthropic-api-key"
-                  className="mt-2"
-                  placeholder="Anthropic API key"
-                  value={settings.anthropicApiKey || ""}
-                  onChange={(e) =>
-                    setSettings((s) => ({
-                      ...s,
-                      anthropicApiKey: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-
-              <div>
-                <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">
-                  Gemini API key
-                </p>
-                <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
-                  Only stored in your browser. Never stored on servers. Overrides
-                  your .env config.
-                </p>
-                <Input
-                  id="gemini-api-key"
-                  className="mt-2"
-                  placeholder="Gemini API key"
-                  value={settings.geminiApiKey || ""}
-                  onChange={(e) =>
-                    setSettings((s) => ({
-                      ...s,
-                      geminiApiKey: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-
-              {!IS_RUNNING_ON_CLOUD && (
-                <div>
-                  <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">
-                    Replicate API key
-                  </p>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
-                    Only stored in your browser. Never stored on servers. Overrides
-                    your .env config for image generation and editing.
-                  </p>
-                  <Input
-                    id="replicate-api-key"
-                    className="mt-2"
-                    placeholder="Replicate API key"
-                    value={settings.replicateApiKey || ""}
-                    onChange={(e) =>
-                      setSettings((s) => ({
-                        ...s,
-                        replicateApiKey: e.target.value,
-                      }))
-                    }
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Image Generation */}
-          <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
-            <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
-              <h2 className="text-sm font-medium text-gray-900 dark:text-white">
-                Image Generation
-              </h2>
-            </div>
-            <div className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-700 dark:text-zinc-300">
-                    Placeholder Images
-                  </p>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
-                    More fun with it but if you want to save money, turn it off.
-                  </p>
-                </div>
-                <Switch
-                  id="image-generation"
-                  checked={settings.isImageGenerationEnabled}
-                  onCheckedChange={(checked) =>
-                    setSettings((s) => ({
-                      ...s,
-                      isImageGenerationEnabled: checked,
-                    }))
-                  }
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Screenshot Preview (agent self-verification) */}
-          <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
-            <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
-              <h2 className="text-sm font-medium text-gray-900 dark:text-white">
-                Screenshot Preview
-              </h2>
-            </div>
-            <div className="p-4">
-              {screenshotPreviewAvailable === false ? (
-                <div className="flex items-start gap-2.5 rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-700/60 dark:bg-amber-900/20">
-                  <BsExclamationTriangleFill className="mt-0.5 shrink-0 text-amber-500" />
-                  <div>
-                    <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                      Screenshot preview is unavailable
-                    </p>
-                    <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-                      Headless Chromium isn't installed on the backend, so the
-                      agent can't render and visually verify its own output.
-                      Install it with{" "}
-                      <code className="rounded bg-amber-100 px-1 py-0.5 font-mono dark:bg-amber-900/40">
-                        playwright install chromium
-                      </code>{" "}
-                      and restart the backend.
-                    </p>
-                  </div>
-                </div>
-              ) : screenshotPreviewAvailable === true ? (
-                <div className="flex items-start gap-2.5">
-                  <BsCheckCircleFill className="mt-0.5 shrink-0 text-emerald-500" />
-                  <div>
-                    <p className="text-sm text-gray-700 dark:text-zinc-300">
-                      Available
-                    </p>
-                    <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
-                      The agent renders your generated page in a headless browser
-                      to visually check its work and fix layout issues.
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-xs text-gray-500 dark:text-zinc-400">
-                  Checking backend capabilities…
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Screenshot by URL */}
-          <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
-            <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
-              <h2 className="text-sm font-medium text-gray-900 dark:text-white">
-                Screenshot by URL
-              </h2>
-            </div>
-            <div className="p-4">
-              <p className="text-xs text-gray-500 dark:text-zinc-400">
-                If you want to use URLs directly instead of taking the screenshot
-                yourself, add a ScreenshotOne API key.{" "}
-                <a
-                  href="https://screenshotone.com?via=screenshot-to-code"
-                  className="text-violet-600 hover:text-violet-700 dark:text-violet-400 dark:hover:text-violet-300"
-                  target="_blank"
-                >
-                  Get 100 screenshots/mo for free.
-                </a>
-              </p>
-              <Input
-                id="screenshot-one-api-key"
-                className="mt-3"
-                placeholder="ScreenshotOne API key"
-                value={settings.screenshotOneApiKey || ""}
-                onChange={(e) =>
-                  setSettings((s) => ({
-                    ...s,
-                    screenshotOneApiKey: e.target.value,
-                  }))
-                }
-              />
-            </div>
-          </div>
+          <Select
+            name="editor-theme"
+            value={settings.editorTheme}
+            onValueChange={(value) => handleThemeChange(value as EditorTheme)}
+          >
+            <SelectTrigger className="w-[140px]">
+              <span className="notranslate" translate="no">
+                {capitalize(settings.editorTheme)}
+              </span>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="cobalt">
+                <span className="notranslate" translate="no">Cobalt</span>
+              </SelectItem>
+              <SelectItem value="espresso">
+                <span className="notranslate" translate="no">Espresso</span>
+              </SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
+    </div>
+  );
+}
+
+function GenerationSection({
+  settings,
+  setSettings,
+}: Pick<Props, "settings" | "setSettings">) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
+      <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
+        <h2 className="text-sm font-medium text-gray-900 dark:text-white">
+          Image Generation
+        </h2>
+      </div>
+      <div className="p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm text-gray-700 dark:text-zinc-300">
+              Placeholder Images
+            </p>
+            <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
+              More fun with it but if you want to save money, turn it off.
+            </p>
+          </div>
+          <Switch
+            id="image-generation"
+            checked={settings.isImageGenerationEnabled}
+            onCheckedChange={(checked) =>
+              setSettings((s) => ({
+                ...s,
+                isImageGenerationEnabled: checked,
+              }))
+            }
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function IntegrationsSection({
+  screenshotPreviewAvailable,
+  settings,
+  setSettings,
+}: Pick<Props, "settings" | "setSettings"> & {
+  screenshotPreviewAvailable: boolean | null;
+}) {
+  return (
+    <div className="space-y-6">
+      {/* Screenshot Preview (agent self-verification) */}
+      <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
+        <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
+          <h2 className="text-sm font-medium text-gray-900 dark:text-white">
+            Screenshot Preview
+          </h2>
+        </div>
+        <div className="p-4">
+          {screenshotPreviewAvailable === false ? (
+            <div className="flex items-start gap-2.5 rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-700/60 dark:bg-amber-900/20">
+              <BsExclamationTriangleFill className="mt-0.5 shrink-0 text-amber-500" />
+              <div>
+                <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                  Screenshot preview is unavailable
+                </p>
+                <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                  Headless Chromium isn't installed on the backend, so the
+                  agent can't render and visually verify its own output.
+                  Install it with{" "}
+                  <code className="rounded bg-amber-100 px-1 py-0.5 font-mono dark:bg-amber-900/40">
+                    playwright install chromium
+                  </code>{" "}
+                  and restart the backend.
+                </p>
+              </div>
+            </div>
+          ) : screenshotPreviewAvailable === true ? (
+            <div className="flex items-start gap-2.5">
+              <BsCheckCircleFill className="mt-0.5 shrink-0 text-emerald-500" />
+              <div>
+                <p className="text-sm text-gray-700 dark:text-zinc-300">
+                  Available
+                </p>
+                <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
+                  The agent renders your generated page in a headless browser
+                  to visually check its work and fix layout issues.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-gray-500 dark:text-zinc-400">
+              Checking backend capabilities…
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Screenshot by URL */}
+      <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
+        <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
+          <h2 className="text-sm font-medium text-gray-900 dark:text-white">
+            Screenshot by URL
+          </h2>
+        </div>
+        <div className="p-4">
+          <p className="text-xs text-gray-500 dark:text-zinc-400">
+            If you want to use URLs directly instead of taking the screenshot
+            yourself, add a ScreenshotOne API key.{" "}
+            <a
+              href="https://screenshotone.com?via=screenshot-to-code"
+              className="text-violet-600 hover:text-violet-700 dark:text-violet-400 dark:hover:text-violet-300"
+              target="_blank"
+            >
+              Get 100 screenshots/mo for free.
+            </a>
+          </p>
+          <Input
+            id="screenshot-one-api-key"
+            className="mt-3"
+            placeholder="ScreenshotOne API key"
+            value={settings.screenshotOneApiKey || ""}
+            onChange={(e) =>
+              setSettings((s) => ({
+                ...s,
+                screenshotOneApiKey: e.target.value,
+              }))
+            }
+          />
+        </div>
+      </div>
+
+      {/* Replicate (image generation/editing backend) */}
+      {!IS_RUNNING_ON_CLOUD && (
+        <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
+          <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
+            <h2 className="text-sm font-medium text-gray-900 dark:text-white">
+              Replicate
+            </h2>
+          </div>
+          <div className="p-4">
+            <p className="text-xs text-gray-500 dark:text-zinc-400">
+              Used for image generation and editing. Only stored in your
+              browser; overrides your .env config.
+            </p>
+            <Input
+              id="replicate-api-key"
+              type="password"
+              autoComplete="off"
+              className="mt-3"
+              placeholder="Replicate API key"
+              value={settings.replicateApiKey || ""}
+              onChange={(e) =>
+                setSettings((s) => ({
+                  ...s,
+                  replicateApiKey: e.target.value,
+                }))
+              }
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
