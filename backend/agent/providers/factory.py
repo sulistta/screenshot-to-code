@@ -9,6 +9,7 @@ from agent.providers.anthropic import AnthropicProviderSession, serialize_anthro
 from agent.providers.base import ProviderSession
 from agent.providers.gemini import GeminiProviderSession, serialize_gemini_tools
 from agent.providers.openai import OpenAIProviderSession, serialize_openai_tools
+from agent.providers.openai_compatible import OpenAICompatibleProviderSession
 from agent.tools import canonical_tool_definitions
 from config import REPLICATE_API_KEY
 from fs_logging.agent_runs import AgentRunRecorder
@@ -27,6 +28,7 @@ def create_provider_session(
     replicate_api_key: Optional[str],
     should_extract_assets: bool = True,
     recorder: Optional[AgentRunRecorder] = None,
+    openai_compatible_model: Optional[str] = None,
 ) -> ProviderSession:
     canonical_tools = canonical_tool_definitions(
         image_generation_enabled=should_generate_images,
@@ -39,6 +41,21 @@ def create_provider_session(
     )
 
     if model in OPENAI_MODELS:
+        if model == Llm.OPENAI_COMPATIBLE:
+            if not openai_base_url or not openai_compatible_model:
+                raise Exception(
+                    "OpenAI-compatible Base URL and model ID are required."
+                )
+            client = AsyncOpenAI(
+                api_key=openai_api_key or "not-needed",
+                base_url=openai_base_url,
+            )
+            return OpenAICompatibleProviderSession(
+                client=client,
+                model_name=openai_compatible_model,
+                prompt_messages=prompt_messages,
+                tools=serialize_openai_tools(canonical_tools),
+            )
         if not openai_api_key:
             raise Exception("OpenAI API key is missing.")
 

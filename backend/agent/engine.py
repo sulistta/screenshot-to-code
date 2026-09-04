@@ -67,6 +67,7 @@ class AgentEngine:
         initial_file_state: Optional[Dict[str, str]] = None,
         option_codes: Optional[List[str]] = None,
         recorder: Optional[AgentRunRecorder] = None,
+        openai_compatible_model: Optional[str] = None,
     ):
         self.send_message = send_message
         self.variant_index = variant_index
@@ -78,6 +79,7 @@ class AgentEngine:
         self.replicate_api_key = replicate_api_key
         self.should_generate_images = should_generate_images
         self.should_extract_assets = should_extract_assets
+        self.openai_compatible_model = openai_compatible_model
 
         self.file_state = AgentFileState()
         if initial_file_state and initial_file_state.get("content"):
@@ -350,6 +352,7 @@ class AgentEngine:
                 self.should_extract_assets and bool(self.tool_runtime.input_images)
             ),
             recorder=self.recorder,
+            openai_compatible_model=self.openai_compatible_model,
         )
         try:
             result = await self._run_with_session(session)

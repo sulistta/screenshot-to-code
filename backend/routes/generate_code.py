@@ -265,6 +265,7 @@ class ExtractedParams:
     history: List[PromptHistoryMessage]
     file_state: Dict[str, str] | None
     option_codes: List[str]
+    openai_compatible_model: str | None = None
     should_extract_assets: bool = True
     asset_base_url: str = ""
     design_system: str | None = None
@@ -323,6 +324,14 @@ class ParameterExtractionStage:
             )
         if not openai_base_url:
             print("Using official OpenAI URL")
+        openai_compatible_model = self._get_from_settings_dialog_or_env(
+            params, "openAiCompatibleModel", None
+        )
+        if openai_compatible_model and not openai_base_url:
+            await self.throw_error(
+                "A Base URL is required for an OpenAI-compatible provider."
+            )
+            raise ValueError("Missing OpenAI-compatible Base URL")
 
         # Feature preferences default to enabled for older clients.
         should_generate_images = bool(params.get("isImageGenerationEnabled", True))
@@ -383,6 +392,7 @@ class ParameterExtractionStage:
             gemini_api_key=gemini_api_key,
             replicate_api_key=replicate_api_key,
             openai_base_url=openai_base_url,
+            openai_compatible_model=openai_compatible_model,
             generation_type=generation_type,
             prompt=prompt,
             history=history,
@@ -421,10 +431,17 @@ class ModelSelectionStage:
         openai_api_key: str | None,
         anthropic_api_key: str | None,
         gemini_api_key: str | None = None,
+        openai_compatible_model: str | None = None,
     ) -> List[Llm]:
         """Select appropriate models based on available API keys"""
         try:
-            num_variants = 2 if generation_type == "update" else NUM_VARIANTS
+            num_variants = (
+                2
+                if input_mode == "video" or generation_type == "update"
+                else NUM_VARIANTS
+            )
+            if openai_compatible_model:
+                return [Llm.OPENAI_COMPATIBLE] * num_variants
             variant_models = self._get_variant_models(
                 generation_type,
                 input_mode,
@@ -566,6 +583,7 @@ class AgenticGenerationStage:
         stack: str | None = None,
         input_mode: str | None = None,
         generation_type: str | None = None,
+        openai_compatible_model: str | None = None,
     ):
         self.send_message = send_message
         self.openai_api_key = openai_api_key
@@ -585,6 +603,7 @@ class AgenticGenerationStage:
         self.stack = stack
         self.input_mode = input_mode
         self.generation_type = generation_type
+        self.openai_compatible_model = openai_compatible_model
 
     async def process_variants(
         self,
@@ -654,6 +673,7 @@ class AgenticGenerationStage:
                 initial_file_state=self.file_state,
                 option_codes=self.option_codes,
                 recorder=recorder,
+                openai_compatible_model=self.openai_compatible_model,
             )
             completion = await runner.run(model, prompt_messages)
             if completion:
@@ -815,6 +835,7 @@ class CodeGenerationMiddleware(Middleware):
                 openai_api_key=context.extracted_params.openai_api_key,
                 anthropic_api_key=context.extracted_params.anthropic_api_key,
                 gemini_api_key=context.extracted_params.gemini_api_key,
+                openai_compatible_model=context.extracted_params.openai_compatible_model,
             )
             if IS_DEBUG_ENABLED:
                 await context.send_message(
@@ -840,6 +861,7 @@ class CodeGenerationMiddleware(Middleware):
                 stack=str(context.extracted_params.stack),
                 input_mode=str(context.extracted_params.input_mode),
                 generation_type=context.extracted_params.generation_type,
+                openai_compatible_model=context.extracted_params.openai_compatible_model,
             )
 
             context.variant_completions = await generation_stage.process_variants(

@@ -157,18 +157,27 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
               </div>
 
               {!IS_RUNNING_ON_CLOUD && (
-                <div>
+                <div className="space-y-4 rounded-md border border-gray-200 p-3 dark:border-zinc-700">
+                  <div>
+                    <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">
+                      OpenAI-compatible provider
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
+                      Set both fields to use a custom provider for every generated variant.
+                      The API key above is optional for local providers without authentication.
+                    </p>
+                  </div>
+                  <div>
                   <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">
-                    OpenAI Base URL (optional)
+                    Base URL
                   </p>
                   <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
-                    Replace with a proxy URL if you don't want to use the
-                    default.
+                    Include the provider's API prefix, usually ending in /v1.
                   </p>
                   <Input
                     id="openai-base-url"
                     className="mt-2"
-                    placeholder="OpenAI Base URL"
+                    placeholder="https://provider.example.com/v1"
                     value={settings.openAiBaseURL || ""}
                     onChange={(e) =>
                       setSettings((s) => ({
@@ -177,6 +186,24 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
                       }))
                     }
                   />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">
+                      Model ID
+                    </p>
+                    <Input
+                      id="openai-compatible-model"
+                      className="mt-2"
+                      placeholder="provider-model-name"
+                      value={settings.openAiCompatibleModel || ""}
+                      onChange={(e) =>
+                        setSettings((s) => ({
+                          ...s,
+                          openAiCompatibleModel: e.target.value,
+                        }))
+                      }
+                    />
+                  </div>
                 </div>
               )}
 
