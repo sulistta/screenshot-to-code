@@ -66,6 +66,7 @@ export interface StudioRunEvent {
   output?: Record<string, unknown>;
   ok?: boolean;
   content?: string;
+  source?: string;
   question?: string;
   questionId?: string;
   options?: string[] | null;
