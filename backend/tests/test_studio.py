@@ -137,7 +137,8 @@ async def test_run_prompts_use_studio_system_prompt(tmp_path) -> None:
         RunRequest(text="a bold landing page", settings={}),
     )
     assert messages[0]["role"] == "system"
-    assert messages[0]["content"] == STUDIO_SYSTEM_PROMPT
+    # The studio prompt is used verbatim, plus the execution-mode directive.
+    assert messages[0]["content"].startswith(STUDIO_SYSTEM_PROMPT)
     joined = str(messages[-1]["content"])
     assert "a bold landing page" in joined
 

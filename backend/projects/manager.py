@@ -27,9 +27,14 @@ from agent.runtime.interaction import QuestionGate
 from agent.runtime.loop import AgentRuntime, RuntimeConfig
 from agent.runtime.statuses import RunStatus
 from agent.workspace import Workspace
-from config import GENERATION_MAX_COST_USD
+from config import (
+    ANTHROPIC_API_KEY,
+    GENERATION_MAX_COST_USD,
+    GEMINI_API_KEY,
+    OPENAI_API_KEY,
+)
 from fs_logging.agent_runs import AgentRunRecorder
-from llm import ANTHROPIC_MODELS, GEMINI_MODELS, OPENAI_MODELS, Llm
+from llm import ANTHROPIC_MODELS, GEMINI_MODELS, MODEL_PROVIDER, OPENAI_MODELS, Llm
 from projects.store import ProjectStore, TranscriptMessage
 
 RunEventSink = Callable[[Any], Any]  # async callable(RunEvent)
@@ -108,6 +113,12 @@ class ProjectRunManager:
             raise ValueError("Run needs a message or reference images.")
 
         meta = self.store.get(project_id)
+        # Resolve the effective model configuration NOW: this snapshot is the
+        # execution's permanent record. Later settings changes never rewrite
+        # it, and an unavailable explicit model fails loudly instead of
+        # silently falling back.
+        keys = extract_engine_keys(request.settings)
+        config = resolve_execution_config(meta, request.settings, keys)
         run_id = uuid.uuid4().hex[:12]
         gate = QuestionGate()
 
@@ -115,9 +126,10 @@ class ProjectRunManager:
             project_id,
             TranscriptMessage(role="user", text=request.text, images=request.images),
         )
+        self.store.start_run_record(project_id, run_id, config)
 
         task = asyncio.create_task(
-            self._run(project_id, meta.id, run_id, request, gate)
+            self._run(project_id, meta.id, run_id, request, gate, config)
         )
         self._active[project_id] = ActiveRun(
             run_id=run_id, task=task, gate=gate, status=RunStatus.RUNNING
@@ -131,21 +143,34 @@ class ProjectRunManager:
         run_id: str,
         request: RunRequest,
         gate: QuestionGate,
+        config: Dict[str, str],
     ) -> None:
         status = RunStatus.FAILED
         assistant_reply = ""
         workspace: Optional[Workspace] = None
+        files_before: set[str] = set()
+        error_message: Optional[str] = None
         try:
             workspace = self.store.load_workspace(project_id)
+            files_before = set(workspace.files)
             prompt_messages = await build_run_prompts(
                 workspace,
                 request,
                 history=self.store.read_transcript(project_id)[:-1],
+                execution_mode=config["execution_mode"],
             )
 
             settings = request.settings
-            model = resolve_model(settings)
+            model = _model_from_value(config["primary_model"])
+            subagent_model = (
+                _model_from_value(config["subagent_model"])
+                if config["subagent_model"]
+                else model
+            )
             engine_keys = extract_engine_keys(settings)
+            # SINGLE prohibits delegation structurally: the tool is not
+            # advertised and no runner exists to service it.
+            delegation_allowed = config["execution_mode"] in ("auto", "swarm")
 
             recorder = AgentRunRecorder(
                 generation_id=f"proj_{project_id}_{run_id}",
@@ -177,7 +202,7 @@ class ProjectRunManager:
                 ),
                 recorder=recorder,
                 ask_user_enabled=True,
-                spawn_agent_enabled=True,
+                spawn_agent_enabled=delegation_allowed,
             )
             assistant_reply_buffer: List[str] = []
 
@@ -206,7 +231,7 @@ class ProjectRunManager:
                     outcome = await run_subagent(
                         brief,
                         workspace,
-                        model,
+                        subagent_model,
                         settings,
                         engine_keys,
                     )
@@ -228,7 +253,10 @@ class ProjectRunManager:
                 runtime = AgentRuntime(
                     session=session,
                     tool_runtime=_build_tool_runtime(
-                        workspace, engine_keys, settings, subagent_runner
+                        workspace,
+                        engine_keys,
+                        settings,
+                        subagent_runner if delegation_allowed else None,
                     ),
                     emit=emitting,
                     recorder=recorder,
@@ -238,7 +266,12 @@ class ProjectRunManager:
                 )
                 await self._broadcast(
                     project_id,
-                    {"type": "run_status", "runId": run_id, "status": "running"},
+                    {
+                        "type": "run_status",
+                        "runId": run_id,
+                        "status": "running",
+                        "config": config,
+                    },
                 )
                 result = await runtime.run(model, prompt_messages)
                 if not result:
@@ -252,13 +285,55 @@ class ProjectRunManager:
         except asyncio.CancelledError:
             status = RunStatus.CANCELLED
             assistant_reply = "Run cancelled."
+        except ValueError as exc:
+            status = RunStatus.FAILED
+            error_message = str(exc)
+            assistant_reply = f"Run failed: {error_message}"
         except Exception as exc:
             status = RunStatus.FAILED
-            assistant_reply = f"Run failed: {exc}"
+            error_message = categorize_error(exc)
+            assistant_reply = f"Run failed: {error_message}"
         finally:
             # Persist whatever the workspace looks like now — partial work
             # from a cancelled run still counts.
+            files_changed: List[str] = []
+            iteration_id: Optional[str] = None
             try:
+                if workspace is not None:
+                    self.store.save_workspace(project_id, workspace)
+                    files_changed = sorted(
+                        path
+                        for path in set(workspace.files) ^ files_before
+                        if path in workspace.files
+                    )
+            except Exception:
+                pass
+            # Only completed executions become iterations: a checkpoint is a
+            # meaningful, validated state, not every intermediate write.
+            if status is RunStatus.COMPLETED and workspace is not None:
+                try:
+                    record = self.store.save_iteration(
+                        project_id,
+                        run_id,
+                        workspace,
+                        label=iteration_label(
+                            len(self.store.list_iterations(project_id)),
+                            bool(files_before),
+                        ),
+                        summary=assistant_reply,
+                    )
+                    iteration_id = record["id"]
+                except Exception:
+                    pass
+            try:
+                self.store.finish_run_record(
+                    project_id,
+                    run_id,
+                    status.value,
+                    files_changed=files_changed,
+                    iteration_id=iteration_id,
+                    error=error_message,
+                )
                 self.store.append_transcript_message(
                     project_id,
                     TranscriptMessage(
@@ -267,8 +342,6 @@ class ProjectRunManager:
                         run_id=run_id,
                     ),
                 )
-                if workspace is not None:
-                    self.store.save_workspace(project_id, workspace)
             except Exception:
                 pass
             self._active.pop(project_id, None)
@@ -278,6 +351,8 @@ class ProjectRunManager:
                     "type": "run_status",
                     "runId": run_id,
                     "status": status.value,
+                    "iterationId": iteration_id,
+                    "filesChanged": files_changed,
                 },
             )
 
@@ -297,6 +372,28 @@ class ProjectRunManager:
             return False
         active.task.cancel()
         return True
+
+
+def _mode_directive(execution_mode: str) -> str:
+    if execution_mode == "single":
+        return (
+            "\n\n# Execution mode: SINGLE\n"
+            "- You work alone in this run: no subagents are available. Do the "
+            "work yourself, even when it is large; sequence it yourself.\n"
+        )
+    if execution_mode == "swarm":
+        return (
+            "\n\n# Execution mode: SWARM\n"
+            "- Delegation is encouraged for substantial builds: decompose the "
+            "work into 2-4 scoped specialists (via spawn_agent) where the "
+            "parts are genuinely separable. Still avoid ceremony: a small "
+            "task may not need any subagent.\n"
+        )
+    return (
+        "\n\n# Execution mode: AUTO\n"
+        "- You decide whether delegation adds value. Spawn a subagent only "
+        "for a genuinely separable unit of work; most tasks need none.\n"
+    )
 
 
 def _event_to_wire(event: Any, run_id: str) -> Dict[str, Any]:
@@ -368,34 +465,142 @@ def extract_engine_keys(settings: Dict[str, Any]) -> Dict[str, Optional[str]]:
     }
 
 
-def resolve_model(settings: Dict[str, Any]) -> Llm:
-    """Explicit model from settings, else the best available default."""
-    raw = settings.get("codeGenerationModel")
-    if raw:
-        try:
-            return Llm(str(raw))
-        except ValueError:
-            pass
-    keys = extract_engine_keys(settings)
+def resolve_execution_config(
+    meta: Any,
+    settings: Dict[str, Any],
+    keys: Dict[str, Optional[str]],
+) -> Dict[str, str]:
+    """Resolve the effective execution configuration and validate it.
+
+    Precedence: run settings > project defaults. An explicit model that no
+    available key supports is a hard error — never a silent fallback.
+    """
+    primary = str(settings.get("primaryModel") or meta.primary_model or "").strip()
+    subagent = str(
+        settings.get("subagentModel") or meta.subagent_model or ""
+    ).strip()
+    mode = str(
+        settings.get("executionMode") or meta.execution_mode or "auto"
+    ).strip()
+    if mode not in ("auto", "single", "swarm"):
+        raise ValueError(f"Invalid execution mode: {mode}")
+
+    available_by_value = available_models(keys)
+    if primary:
+        if primary not in available_by_value:
+            raise ValueError(
+                f"Primary model {primary!r} is not available with the "
+                "configured provider keys. Check Settings → Providers or "
+                "pick another model."
+            )
+    else:
+        primary = default_model_value(keys)
+    if subagent and subagent not in available_by_value:
+        raise ValueError(
+            f"Subagent model {subagent!r} is not available with the "
+            "configured provider keys. Check Settings → Providers or "
+            "pick another model."
+        )
+
+    return {
+        "primary_model": primary,
+        # Empty subagent model: subagents use the primary model.
+        "subagent_model": subagent,
+        "execution_mode": mode,
+    }
+
+
+def available_models(keys: Dict[str, Optional[str]]) -> List[str]:
+    """Model values usable with the currently configured provider keys."""
+    by_provider = {
+        "openai": bool(keys.get("openai_api_key")) or bool(OPENAI_API_KEY),
+        "anthropic": bool(keys.get("anthropic_api_key")) or bool(ANTHROPIC_API_KEY),
+        "gemini": bool(keys.get("gemini_api_key")) or bool(GEMINI_API_KEY),
+    }
+    values: List[str] = []
+    for model in Llm:
+        provider = MODEL_PROVIDER.get(model)
+        if provider and by_provider.get(provider):
+            values.append(model.value)
+    return values
+
+
+def default_model_value(keys: Dict[str, Optional[str]]) -> str:
+    """Best default primary model given available keys."""
+    keys = {
+        **keys,
+        "openai_api_key": keys.get("openai_api_key") or OPENAI_API_KEY,
+        "anthropic_api_key": keys.get("anthropic_api_key") or ANTHROPIC_API_KEY,
+        "gemini_api_key": keys.get("gemini_api_key") or GEMINI_API_KEY,
+    }
     from routes.model_choice_sets import ALL_KEYS_MODELS_DEFAULT
 
     for model in ALL_KEYS_MODELS_DEFAULT:
         if model in OPENAI_MODELS and keys["openai_api_key"]:
-            return model
+            return model.value
         if model in ANTHROPIC_MODELS and keys["anthropic_api_key"]:
-            return model
+            return model.value
         if model in GEMINI_MODELS and keys["gemini_api_key"]:
-            return model
+            return model.value
     raise ValueError(
         "No model API key available. Add OPENAI_API_KEY, ANTHROPIC_API_KEY, "
         "or GEMINI_API_KEY to the backend environment."
     )
 
 
+def _model_from_value(value: str) -> Llm:
+    """Parse a model value; unknown values are a hard error, not a fallback."""
+    try:
+        return Llm(value)
+    except ValueError:
+        raise ValueError(
+            f"Unknown model: {value!r}. Pick a model in Settings → Providers."
+        )
+
+
+def categorize_error(exc: Exception) -> str:
+    """Map provider/runtime exceptions to a user-actionable category line."""
+    name = exc.__class__.__name__
+    text = str(exc)
+    module = getattr(exc.__class__, "__module__", "")
+    if "AuthenticationError" in name:
+        return (
+            "Authentication failed: the provider rejected the API key. "
+            "Check the key in Settings → Providers."
+        )
+    if "RateLimit" in name or "quota" in text.lower():
+        return (
+            "Provider rate limit or quota reached. Wait a moment or check "
+            "your provider plan and billing."
+        )
+    if "NotFound" in name and "openai" in module:
+        return (
+            "The provider does not know this model. Pick another model in "
+            "the run configuration."
+        )
+    if "APIConnection" in name or "Connect" in name or "Timeout" in name:
+        return (
+            "Could not reach the model provider (network error or timeout). "
+            "Check your connection and retry."
+        )
+    if "Budget" in name:
+        return "This run exceeded its spending limit and was stopped."
+    if "Stuck" in name:
+        return "The agent repeated the same step without progress and was stopped."
+    return f"Unexpected error ({name}): {text}"
+
+
+def iteration_label(index: int, has_prior_work: bool) -> str:
+    if index == 0 or not has_prior_work:
+        return "Initial implementation"
+    return f"Revision {index}"
+
+
 async def build_run_prompts(
     workspace: Workspace,
     request: RunRequest,
     history: Optional[List[TranscriptMessage]] = None,
+    execution_mode: str = "auto",
 ) -> List[ChatCompletionMessageParam]:
     """Conversation prompts for a project run.
 
@@ -442,7 +647,7 @@ async def build_run_prompts(
             request.settings.get("isImageGenerationEnabled", True)
         ),
         design_system=request.settings.get("designSystem"),
-        system_prompt_override=STUDIO_SYSTEM_PROMPT,
+        system_prompt_override=STUDIO_SYSTEM_PROMPT + _mode_directive(execution_mode),
     )
     if not chat_history:
         return list(messages)

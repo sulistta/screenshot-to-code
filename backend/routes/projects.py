@@ -43,6 +43,9 @@ def _meta_json(meta: Any) -> Dict[str, Any]:
         "brief": meta.brief,
         "createdAt": meta.created_at,
         "updatedAt": meta.updated_at,
+        "primaryModel": meta.primary_model,
+        "subagentModel": meta.subagent_model,
+        "executionMode": meta.execution_mode,
     }
 
 
@@ -76,9 +79,14 @@ async def update_project(project_id: str, body: Dict[str, Any]) -> Dict[str, Any
             project_id,
             name=body.get("name"),
             brief=body.get("brief"),
+            primary_model=body.get("primaryModel"),
+            subagent_model=body.get("subagentModel"),
+            execution_mode=body.get("executionMode"),
         )
     except ProjectNotFoundError:
         raise HTTPException(status_code=404, detail="Project not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     return {"project": _meta_json(meta)}
 
 
@@ -148,6 +156,68 @@ async def cancel_run(project_id: str) -> Dict[str, Any]:
     if not cancelled:
         raise HTTPException(status_code=409, detail="No active run")
     return {"ok": True}
+
+
+@router.get("/api/projects/{project_id}/runs")
+async def list_runs(project_id: str) -> Dict[str, Any]:
+    try:
+        records = get_manager().store.list_run_records(project_id)
+    except ProjectNotFoundError:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"runs": records}
+
+
+@router.get("/api/projects/{project_id}/iterations")
+async def list_iterations(project_id: str) -> Dict[str, Any]:
+    try:
+        records = get_manager().store.list_iterations(project_id)
+    except ProjectNotFoundError:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"iterations": records}
+
+
+@router.get("/api/projects/{project_id}/iterations/{iteration_id}/files/{path:path}")
+async def serve_iteration_file(
+    project_id: str, iteration_id: str, path: str
+) -> Any:
+    """Serve a file from a historical iteration snapshot."""
+    from fastapi.responses import FileResponse
+
+    try:
+        file_path = get_manager().store.iteration_file(
+            project_id, iteration_id, path or "index.html"
+        )
+    except (ProjectNotFoundError, InvalidProjectPath):
+        raise HTTPException(status_code=404, detail="File not found")
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(file_path)
+
+
+@router.get("/api/projects/{project_id}/iterations/{iteration_id}")
+async def serve_iteration_entry(project_id: str, iteration_id: str) -> Any:
+    from fastapi.responses import FileResponse
+
+    try:
+        file_path = get_manager().store.iteration_file(
+            project_id, iteration_id, "index.html"
+        )
+    except (ProjectNotFoundError, InvalidProjectPath):
+        raise HTTPException(status_code=404, detail="Iteration not found")
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Iteration has no entry file")
+    return FileResponse(file_path)
+
+
+@router.get("/api/models")
+async def available_models_route() -> Dict[str, Any]:
+    """Models selectable in the run configuration, with provider labels."""
+    from projects.manager import available_models
+    from projects.manager import extract_engine_keys
+
+    keys = extract_engine_keys({})
+    models = available_models(keys)
+    return {"models": models}
 
 
 @router.get("/workspace/{project_id}/{path:path}")

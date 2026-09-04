@@ -33,6 +33,11 @@ class ProjectMeta:
     brief: str
     created_at: str
     updated_at: str
+    # Execution configuration; "" means "let the runtime resolve".
+    primary_model: str = ""
+    subagent_model: str = ""
+    # "auto" | "single" | "swarm"
+    execution_mode: str = "auto"
 
     def to_json(self) -> Dict[str, str]:
         return asdict(self)
@@ -85,6 +90,9 @@ class ProjectStore:
             brief=data.get("brief", ""),
             created_at=data.get("created_at", ""),
             updated_at=data.get("updated_at", ""),
+            primary_model=data.get("primary_model", ""),
+            subagent_model=data.get("subagent_model", ""),
+            execution_mode=data.get("execution_mode", "auto"),
         )
 
     def list(self) -> List[ProjectMeta]:
@@ -97,13 +105,27 @@ class ProjectStore:
         return projects
 
     def update(
-        self, project_id: str, name: Optional[str] = None, brief: Optional[str] = None
+        self,
+        project_id: str,
+        name: Optional[str] = None,
+        brief: Optional[str] = None,
+        primary_model: Optional[str] = None,
+        subagent_model: Optional[str] = None,
+        execution_mode: Optional[str] = None,
     ) -> ProjectMeta:
         meta = self.get(project_id)
         if name is not None and name.strip():
             meta.name = name.strip()
         if brief is not None:
             meta.brief = brief
+        if primary_model is not None:
+            meta.primary_model = primary_model.strip()
+        if subagent_model is not None:
+            meta.subagent_model = subagent_model.strip()
+        if execution_mode is not None:
+            if execution_mode not in ("auto", "single", "swarm"):
+                raise ValueError(f"Invalid execution mode: {execution_mode}")
+            meta.execution_mode = execution_mode
         meta.updated_at = _now_iso()
         self._write_meta(meta)
         return meta
@@ -195,6 +217,130 @@ class ProjectStore:
         path = self._transcript_path(project_id, session_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps([m.to_json() for m in messages]))
+
+    # --- execution records -----------------------------------------------------
+    #
+    # Every execution snapshots its resolved model configuration at start;
+    # later settings changes never rewrite history.
+
+    def start_run_record(
+        self, project_id: str, run_id: str, config: Dict[str, str]
+    ) -> None:
+        self.get(project_id)
+        record = {
+            "run_id": run_id,
+            "status": "running",
+            "started_at": _now_iso(),
+            "finished_at": None,
+            # Resolved effective configuration for THIS execution.
+            "config": config,
+            "files_changed": [],
+            "iteration_id": None,
+            "error": None,
+        }
+        record_path = self._run_record_path(project_id, run_id)
+        record_path.parent.mkdir(parents=True, exist_ok=True)
+        record_path.write_text(json.dumps(record))
+
+    def finish_run_record(
+        self,
+        project_id: str,
+        run_id: str,
+        status: str,
+        files_changed: Optional[List[str]] = None,
+        iteration_id: Optional[str] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        path = self._run_record_path(project_id, run_id)
+        if not path.exists():
+            return
+        record = json.loads(path.read_text())
+        record["status"] = status
+        record["finished_at"] = _now_iso()
+        if files_changed is not None:
+            record["files_changed"] = files_changed
+        if iteration_id is not None:
+            record["iteration_id"] = iteration_id
+        if error is not None:
+            record["error"] = error
+        path.write_text(json.dumps(record))
+
+    def get_run_record(self, project_id: str, run_id: str) -> Optional[Dict[str, str]]:
+        path = self._run_record_path(project_id, run_id)
+        if not path.exists():
+            return None
+        return json.loads(path.read_text())
+
+    def list_run_records(self, project_id: str) -> List[Dict[str, str]]:
+        runs_dir = self._dir(project_id) / "runs"
+        if not runs_dir.exists():
+            return []
+        records = []
+        for path in sorted(runs_dir.glob("*.json")):
+            records.append(json.loads(path.read_text()))
+        return records
+
+    def _run_record_path(self, project_id: str, run_id: str) -> Path:
+        return self._dir(project_id) / "runs" / f"{run_id}.json"
+
+    # --- iterations --------------------------------------------------------------
+    #
+    # An iteration is a meaningful checkpoint: a completed execution's
+    # workspace snapshot plus its change summary. Failed and cancelled runs
+    # never create iterations.
+
+    def save_iteration(
+        self,
+        project_id: str,
+        run_id: str,
+        workspace: Workspace,
+        label: str,
+        summary: str,
+    ) -> Dict[str, str]:
+        meta = self.get(project_id)
+        iterations_dir = self._dir(project_id) / "iterations"
+        iterations_dir.mkdir(exist_ok=True)
+        index = len(self.list_iterations(project_id)) + 1
+        iteration_id = f"i{index:03d}"
+        snapshot_dir = iterations_dir / iteration_id
+        if snapshot_dir.exists():
+            shutil.rmtree(snapshot_dir)
+        snapshot_dir.mkdir()
+        for path, content in workspace.files.items():
+            file_path = snapshot_dir / path
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text(content)
+        record = {
+            "id": iteration_id,
+            "run_id": run_id,
+            "label": label,
+            "summary": summary,
+            "created_at": _now_iso(),
+        }
+        (snapshot_dir / "iteration.json").write_text(json.dumps(record))
+        meta.updated_at = _now_iso()
+        self._write_meta(meta)
+        return record
+
+    def list_iterations(self, project_id: str) -> List[Dict[str, str]]:
+        iterations_dir = self._dir(project_id) / "iterations"
+        if not iterations_dir.exists():
+            return []
+        records = []
+        for path in sorted(iterations_dir.glob("i*/iteration.json")):
+            records.append(json.loads(path.read_text()))
+        return records
+
+    def iteration_file(self, project_id: str, iteration_id: str, relative: str) -> Path:
+        """Path inside an iteration snapshot; traversal-guarded."""
+        self.get(project_id)
+        if not iteration_id.replace("i", "").isdigit():
+            raise InvalidProjectPath(iteration_id)
+        base = (self._dir(project_id) / "iterations" / iteration_id).resolve()
+        candidate = (base / relative).resolve()
+        if not candidate.is_relative_to(base):
+            raise InvalidProjectPath(relative)
+        return candidate
 
     # --- paths --------------------------------------------------------------------
     def _dir(self, project_id: str) -> Path:
