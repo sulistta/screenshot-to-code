@@ -119,18 +119,23 @@ function ConfigBar({ project }: { project: StudioProject }) {
 
   useEffect(() => {
     getAvailableModels().then((list) => {
-      // A registered custom provider exposes its models through the
-      // OpenAI-compatible path; they are selectable in run configuration.
-      const hasCustom = (settings?.customProviders ?? []).some(
+      // A registered custom provider exposes its individual model ids as
+      // "custom:<id>" options so primary/subagent picks route precisely.
+      const active = (settings?.customProviders ?? []).find(
         (provider) =>
           provider.enabled &&
           provider.id === settings?.activeCustomProviderId,
       );
-      setModels(
-        hasCustom && !list.includes("OpenAI-compatible custom model")
-          ? [...list, "OpenAI-compatible custom model"]
-          : list,
-      );
+      const customOptions =
+        active?.models.map((model) => `custom:${model.id}`) ?? [];
+      const merged = [...list];
+      if (active && !merged.includes("OpenAI-compatible custom model")) {
+        merged.push("OpenAI-compatible custom model");
+      }
+      for (const option of customOptions) {
+        if (!merged.includes(option)) merged.push(option);
+      }
+      setModels(merged);
     }).catch(() => undefined);
   }, [settings?.customProviders, settings?.activeCustomProviderId]);
 

@@ -36,6 +36,7 @@ def create_provider_session(
     custom_model_index: int = 0,
     ask_user_enabled: bool = False,
     spawn_agent_enabled: bool = False,
+    custom_model_id: Optional[str] = None,
 ) -> ProviderSession:
     canonical_tools = canonical_tool_definitions(
         image_generation_enabled=should_generate_images,
@@ -53,10 +54,14 @@ def create_provider_session(
         if model == Llm.OPENAI_COMPATIBLE:
             if custom_provider is None:
                 raise Exception("OpenAI-compatible provider configuration is missing.")
-            # Variants cycle across the provider's registered models.
-            model_id = custom_provider.models[
-                custom_model_index % len(custom_provider.models)
-            ]
+            # Variants cycle across the provider's registered models; a
+            # pinned custom_model_id (primary/subagent selection) wins.
+            if custom_model_id:
+                model_id = custom_model_id
+            else:
+                model_id = custom_provider.models[
+                    custom_model_index % len(custom_provider.models)
+                ]
             client = AsyncOpenAI(
                 api_key=custom_provider.api_key or "not-needed",
                 base_url=custom_provider.base_url,

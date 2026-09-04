@@ -104,6 +104,7 @@ async def run_subagent(
     recorder: Optional[AgentRunRecorder] = None,
     emit: Optional[SubagentEmitter] = None,
     interaction: Optional[UserInteraction] = None,
+    custom_model_id: Optional[str] = None,
 ) -> SubagentResult:
     """Run one scoped subagent to completion and merge its files back."""
     from agent.tools import AgentToolRuntime
@@ -123,6 +124,8 @@ async def run_subagent(
             sub_workspace.write(path, parent_workspace.read(path))
 
     messages = build_subagent_messages(brief, request_settings)
+    from agent.providers.custom import resolve_active_custom_provider
+
     session = create_provider_session(
         model=model,
         prompt_messages=messages,
@@ -134,6 +137,11 @@ async def run_subagent(
         anthropic_api_key=keys.get("anthropic_api_key"),
         gemini_api_key=keys.get("gemini_api_key"),
         replicate_api_key=keys.get("replicate_api_key"),
+        custom_provider=resolve_active_custom_provider(
+            request_settings.get("customProviders"),
+            request_settings.get("activeCustomProviderId"),
+        ),
+        custom_model_id=custom_model_id,
         recorder=recorder,
         # Subagents never ask the user questions and never spawn agents.
         ask_user_enabled=False,

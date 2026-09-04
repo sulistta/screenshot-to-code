@@ -167,6 +167,8 @@ class ProjectRunManager:
                 if config["subagent_model"]
                 else model
             )
+            primary_custom_id = custom_model_id_of(config["primary_model"])
+            subagent_custom_id = custom_model_id_of(config["subagent_model"])
             engine_keys = extract_engine_keys(settings)
             # SINGLE prohibits delegation structurally: the tool is not
             # advertised and no runner exists to service it.
@@ -203,6 +205,7 @@ class ProjectRunManager:
                 recorder=recorder,
                 ask_user_enabled=True,
                 spawn_agent_enabled=delegation_allowed,
+                custom_model_id=primary_custom_id,
             )
             assistant_reply_buffer: List[str] = []
 
@@ -234,6 +237,7 @@ class ProjectRunManager:
                         subagent_model,
                         settings,
                         engine_keys,
+                        custom_model_id=subagent_custom_id,
                     )
                     return ToolExecutionResult(
                         ok=outcome.ok,
@@ -487,9 +491,12 @@ def resolve_execution_config(
 
     available_by_value = available_models(keys)
     # A user-registered custom provider makes the OpenAI-compatible model
-    # selectable regardless of built-in provider keys.
-    if active_custom_provider(settings) is not None:
+    # selectable regardless of built-in provider keys — including its
+    # individual model ids, addressed as "custom:<model-id>".
+    custom = active_custom_provider(settings)
+    if custom is not None:
         available_by_value.append(Llm.OPENAI_COMPATIBLE.value)
+        available_by_value.extend(f"custom:{m.id}" for m in custom.models)
     if primary:
         if primary not in available_by_value:
             raise ValueError(
@@ -568,12 +575,21 @@ def default_model_value(keys: Dict[str, Optional[str]]) -> str:
 
 def _model_from_value(value: str) -> Llm:
     """Parse a model value; unknown values are a hard error, not a fallback."""
+    if value.startswith("custom:"):
+        return Llm.OPENAI_COMPATIBLE
     try:
         return Llm(value)
     except ValueError:
         raise ValueError(
             f"Unknown model: {value!r}. Pick a model in Settings → Providers."
         )
+
+
+def custom_model_id_of(value: str) -> Optional[str]:
+    """Model id pinned within the active custom provider, if any."""
+    if value.startswith("custom:"):
+        return value[len("custom:"):]
+    return None
 
 
 def categorize_error(exc: Exception) -> str:
