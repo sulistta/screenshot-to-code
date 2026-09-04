@@ -1,7 +1,6 @@
 from agent.runtime.errors import (
     BudgetExceededError,
     EmptyOutputError,
-    MaxStepsExceededError,
     StuckLoopError,
 )
 from agent.runtime.events import (
@@ -30,7 +29,6 @@ __all__ = [
     "BudgetExceededError",
     "CodePreviewStreamer",
     "EmptyOutputError",
-    "MaxStepsExceededError",
     "QuestionEvent",
     "QuestionGate",
     "RunEvent",

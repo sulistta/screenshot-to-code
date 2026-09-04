@@ -285,23 +285,30 @@ async def test_ask_user_empty_answer_is_a_decline() -> None:
 
 
 @pytest.mark.asyncio
-async def test_max_steps_exceeded_raises() -> None:
+async def test_loop_has_no_step_ceiling() -> None:
+    """The loop runs past the old 30-turn cap until the model finishes.
+
+    Distinct arguments each turn (real long work), so stuck detection
+    stays quiet while the budget ceiling is disabled.
+    """
     calls = [
-        ProviderTurn(assistant_text="", tool_calls=[_create_call("v", f"c{i}")])
-        for i in range(40)
+        ProviderTurn(
+            assistant_text="",
+            tool_calls=[_create_call(f"<html>v{i}</html>", f"c{i}")],
+        )
+        for i in range(45)
     ]
+    calls.append(ProviderTurn(assistant_text="finally done", tool_calls=[]))
     session = ScriptedSession(calls)
     runtime = AgentRuntime(
         session=session,
         tool_runtime=_noop_runtime(),
         emit=EventLog(),
-        config=RuntimeConfig(budget_usd=None, max_steps=3),
+        config=RuntimeConfig(budget_usd=None),
     )
-    from agent.runtime.errors import MaxStepsExceededError
-
-    with pytest.raises(MaxStepsExceededError):
-        await runtime.run(Llm.GPT_5_5_HIGH, [])
-    assert runtime.status is RunStatus.FAILED
+    result = await runtime.run(Llm.GPT_5_5_HIGH, [])
+    assert result == "<html>v44</html>"
+    assert runtime.status is RunStatus.COMPLETED
 
 
 @pytest.mark.asyncio
@@ -335,3 +342,93 @@ async def test_multi_file_run_finalizes_self_contained() -> None:
     result = await runtime.run(Llm.GPT_5_5_HIGH, [])
     # The entry references main.js, so the returned document inlines it.
     assert "<script>\ninit();\n</script>" in result
+
+
+class FlakySession:
+    """Fails with transient provider errors, then succeeds."""
+
+    def __init__(self, failures: int, exc: Exception) -> None:
+        self.remaining = failures
+        self.exc = exc
+        self.calls = 0
+        self.closed = False
+
+    async def stream_turn(self, on_event):
+        from agent.providers.base import StreamEvent
+
+        self.calls += 1
+        if self.remaining > 0:
+            self.remaining -= 1
+            raise self.exc
+        await on_event(
+            StreamEvent(type="assistant_delta", text="recovered")
+        )
+        return ProviderTurn(assistant_text="recovered", tool_calls=[])
+
+    async def append_tool_results(self, turn, executed):
+        return None
+
+    def total_cost_usd(self):
+        return None
+
+    async def close(self):
+        self.closed = True
+
+
+@pytest.mark.asyncio
+async def test_transient_provider_errors_are_retried() -> None:
+    class RateLimit(Exception):
+        pass
+
+    session = FlakySession(2, RateLimit("rate limit exceeded, try later"))
+    log = EventLog()
+
+    class ShortDelays(RuntimeConfig):
+        retry_delays = (0.01, 0.01, 0.01)
+
+    runtime = AgentRuntime(
+        session=session,
+        tool_runtime=_noop_runtime(),
+        emit=log,
+        config=ShortDelays(),
+    )
+    result = await runtime.run(Llm.GPT_5_5_HIGH, [])
+    assert result == "recovered"
+    assert session.calls == 3
+    # The user saw what happened.
+    statuses = [e.message for e in log.events if e.type == "status"]
+    assert any("retrying" in message for message in statuses)
+
+
+@pytest.mark.asyncio
+async def test_non_transient_errors_fail_fast() -> None:
+    class AuthFail(Exception):
+        pass
+
+    session = FlakySession(3, AuthFail("invalid api key"))
+    runtime = AgentRuntime(
+        session=session,
+        tool_runtime=_noop_runtime(),
+        emit=EventLog(),
+        config=RuntimeConfig(),
+    )
+    with pytest.raises(AuthFail):
+        await runtime.run(Llm.GPT_5_5_HIGH, [])
+    assert session.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_retries_stop_after_limit() -> None:
+    class RateLimit(Exception):
+        pass
+
+    session = FlakySession(10, RateLimit("rate limit"))
+    runtime = AgentRuntime(
+        session=session,
+        tool_runtime=_noop_runtime(),
+        emit=EventLog(),
+        config=RuntimeConfig(provider_retries=1, retry_delays=(0.01,)),
+    )
+    with pytest.raises(RateLimit):
+        await runtime.run(Llm.GPT_5_5_HIGH, [])
+    assert session.calls == 2  # 1 initial + 1 retry

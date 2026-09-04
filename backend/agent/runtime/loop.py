@@ -10,7 +10,7 @@ import asyncio
 import json
 import uuid
 from dataclasses import dataclass
-from typing import Awaitable, Callable, List, Optional, cast
+from typing import Any, Awaitable, Callable, List, Optional, Tuple, cast
 
 from codegen.utils import extract_html_content
 from openai.types.chat import ChatCompletionMessageParam
@@ -26,7 +26,6 @@ from agent.tools import (
 from agent.tools.types import ToolCall, ToolExecutionResult
 from agent.runtime.errors import (
     BudgetExceededError,
-    MaxStepsExceededError,
     StuckLoopError,
 )
 from agent.runtime.events import (
@@ -34,6 +33,7 @@ from agent.runtime.events import (
     QuestionEvent,
     RunEvent,
     SetCodeEvent,
+    StatusEvent,
     ThinkingDeltaEvent,
     ToolResultEvent,
 )
@@ -53,7 +53,6 @@ def _default_event_id(prefix: str) -> str:
 
 @dataclass
 class RuntimeConfig:
-    max_steps: int = 30
     # None disables the ceiling (unpriced models already report None).
     budget_usd: Optional[float] = None
     # Repeating an identical tool call this many times triggers a warning
@@ -65,6 +64,10 @@ class RuntimeConfig:
     # ever written (single-shot create flow). Subagents disable this: their
     # final text is a chat summary, never a document.
     finalize_from_text: bool = True
+    # Transient provider failures (rate limits, dropped connections) are
+    # retried with these delays before the run fails.
+    provider_retries: int = 3
+    retry_delays: Tuple[float, ...] = (2.0, 6.0, 15.0)
 
 
 class AgentRuntime:
@@ -122,11 +125,44 @@ class AgentRuntime:
             raise
 
     async def _loop(self) -> str:
-        for _ in range(self.config.max_steps):
+        # No step ceiling: the model works until it finishes. Runaway
+        # behavior is still bounded by the budget ceiling, stuck detection,
+        # and the user's stop button.
+        while True:
             finalized = await self._step()
             if finalized is not None:
                 return finalized
-        raise MaxStepsExceededError()
+
+    async def _stream_turn_with_retry(self, on_event: Any) -> Any:
+        """Stream one provider turn, retrying transient provider failures.
+
+        Free-tier and busy endpoints drop connections and rate-limit often;
+        one hiccup should not kill a run that may already hold minutes of
+        work. Retries wait with backoff and surface what happened.
+        """
+        attempt = 0
+        while True:
+            try:
+                return await self.session.stream_turn(on_event)
+            except Exception as exc:  # noqa: BLE001 — classified below
+                attempt += 1
+                if attempt > self.config.provider_retries or not _is_transient(
+                    exc
+                ):
+                    raise
+                delay = self.config.retry_delays[
+                    min(attempt - 1, len(self.config.retry_delays) - 1)
+                ]
+                await self.emit(
+                    StatusEvent(
+                        message=(
+                            f"Provider hiccup ({exc.__class__.__name__}); "
+                            f"retrying in {delay:.0f}s "
+                            f"(attempt {attempt}/{self.config.provider_retries})."
+                        )
+                    )
+                )
+                await asyncio.sleep(delay)
 
     async def _step(self) -> Optional[str]:
         """One provider turn; returns final content when the model is done."""
@@ -164,7 +200,7 @@ class AgentRuntime:
             if event.type == "tool_call_delta":
                 await self._handle_streamed_tool_delta(event)
 
-        turn = await self.session.stream_turn(on_event)
+        turn = await self._stream_turn_with_retry(on_event)
 
         if not turn.tool_calls:
             return await self._finalize_response(turn.assistant_text)
@@ -367,6 +403,40 @@ class AgentRuntime:
                     self.recorder.record_set_code(len(html), "finalize")
 
         return self.file_state.content
+
+
+_TRANSIENT_MARKERS = (
+    "rate limit",
+    "ratelimit",
+    "overloaded",
+    "connection",
+    "timed out",
+    "timeout",
+    "temporarily unavailable",
+    "502",
+    "503",
+    "529",
+)
+
+
+def _is_transient(exc: Exception) -> bool:
+    """True for provider failures worth retrying: rate limits, network
+    drops, provider-side 5xx. Tool and usage errors are never retried."""
+    name = exc.__class__.__name__
+    if name in (
+        "APIConnectionError",
+        "APITimeoutError",
+        "RateLimitError",
+        "InternalServerError",
+        "APIStatusError",
+    ):
+        # APIStatusError subclasses 4xx (auth/not found) must not retry.
+        if name == "APIStatusError":
+            status = getattr(exc, "status_code", None)
+            return isinstance(status, int) and status >= 500
+        return True
+    text = str(exc).lower()
+    return any(marker in text for marker in _TRANSIENT_MARKERS)
 
 
 def extract_input_images(

@@ -28,7 +28,6 @@ from llm import Llm
 SubagentEmitter = Callable[[Dict[str, Any]], Awaitable[None]]
 
 
-SUBAGENT_MAX_STEPS = 15
 
 
 @dataclass
@@ -175,7 +174,6 @@ async def run_subagent(
             recorder=recorder,
             interaction=interaction,
             config=RuntimeConfig(
-                max_steps=SUBAGENT_MAX_STEPS,
                 budget_usd=GENERATION_MAX_COST_USD,
                 # The final message is a chat summary for the orchestrator,
                 # never a document; nothing is created without a tool call.

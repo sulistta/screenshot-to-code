@@ -20,6 +20,13 @@ design, motion, engineering quality.
 - index.html is the entry page. Additional files (styles.css, main.js, other
   pages) are welcome for real structure; reference them with relative URLs.
   Keep small things simple: one file is often the right call.
+- The preview opens index.html directly in a browser — there is NO build
+  step, NO bundler, NO npm. Never create package.json, vite/next/webpack
+  configs, JSX/TSX source files, or files that must be compiled. React is
+  fine only via CDN + Babel standalone (pinned @babel/standalone 7.25.6) or
+  as vanilla ES modules; Three.js, GSAP, and other libraries load from CDN
+  with ES module imports. Every file you write must run as-is in the
+  browser.
 - For substantial builds, write your plan as PLAN.md in the workspace before
   coding (concept, visual language, structure, motion, file breakdown), and
   keep it updated as decisions change. Scale the plan to the task: a landing

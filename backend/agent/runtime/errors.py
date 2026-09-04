@@ -27,13 +27,6 @@ class BudgetExceededError(Exception):
         )
 
 
-class MaxStepsExceededError(Exception):
-    """Raised when the loop exhausts its tool-turn budget without finishing."""
-
-    def __init__(self) -> None:
-        super().__init__("Agent exceeded max tool turns")
-
-
 class StuckLoopError(Exception):
     """Raised when the model repeats an identical tool call past the limit.
 
