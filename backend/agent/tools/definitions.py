@@ -185,11 +185,37 @@ def _retrieve_option_schema() -> Dict[str, Any]:
     }
 
 
+def _ask_user_schema() -> Dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "question": {
+                "type": "string",
+                "description": (
+                    "A specific, decision-focused question. Ask about choices "
+                    "that materially change the result and cannot be inferred "
+                    "from the brief or references."
+                ),
+            },
+            "options": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "2-4 concrete answer options the user can pick from, when "
+                    "the choice is enumerable."
+                ),
+            },
+        },
+        "required": ["question"],
+    }
+
+
 def canonical_tool_definitions(
     image_generation_enabled: bool = True,
     image_editing_enabled: bool = True,
     asset_extraction_enabled: bool = True,
     screenshot_enabled: bool = True,
+    ask_user_enabled: bool = False,
 ) -> List[CanonicalToolDefinition]:
     tools: List[CanonicalToolDefinition] = [
         CanonicalToolDefinition(
@@ -278,6 +304,21 @@ def canonical_tool_definitions(
                     "requested design. Screenshots are returned as attached images."
                 ),
                 parameters=_screenshot_preview_schema(),
+            )
+        )
+    if ask_user_enabled:
+        tools.append(
+            CanonicalToolDefinition(
+                name="ask_user",
+                description=(
+                    "Ask the user a clarifying question mid-run. Use it when a "
+                    "decision materially changes the result and cannot be "
+                    "reasonably inferred from the brief, references, or "
+                    "context. Ask at most 1-2 questions per run, early, and "
+                    "never about things you can decide yourself. Your run "
+                    "pauses until the user answers."
+                ),
+                parameters=_ask_user_schema(),
             )
         )
     tools.extend(
