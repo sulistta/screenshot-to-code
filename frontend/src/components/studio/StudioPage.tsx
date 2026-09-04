@@ -113,12 +113,26 @@ function ActivityItem({ item }: { item: StudioActivityItem }) {
 function ConfigBar({ project }: { project: StudioProject }) {
   const updateProject = useStudioStore((state) => state.updateProject);
   const setError = useStudioStore((state) => state.setError);
+  const settings = useStudioStore((state) => state.settings);
   const [models, setModels] = useState<string[]>([]);
   const [editing, setEditing] = useState(false);
 
   useEffect(() => {
-    getAvailableModels().then(setModels).catch(() => undefined);
-  }, []);
+    getAvailableModels().then((list) => {
+      // A registered custom provider exposes its models through the
+      // OpenAI-compatible path; they are selectable in run configuration.
+      const hasCustom = (settings?.customProviders ?? []).some(
+        (provider) =>
+          provider.enabled &&
+          provider.id === settings?.activeCustomProviderId,
+      );
+      setModels(
+        hasCustom && !list.includes("OpenAI-compatible custom model")
+          ? [...list, "OpenAI-compatible custom model"]
+          : list,
+      );
+    }).catch(() => undefined);
+  }, [settings?.customProviders, settings?.activeCustomProviderId]);
 
   const save = async (patch: Partial<StudioProject>) => {
     try {
@@ -668,6 +682,11 @@ export default function StudioPage() {
   );
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
+  // Mirror persisted settings into the store for ConfigBar.
+  useEffect(() => {
+    useStudioStore.getState().setSettings(settings);
+  }, [settings]);
+
   const activeProject = projects.find((p) => p.id === activeProjectId);
 
   useEffect(() => {
@@ -908,9 +927,7 @@ async function probeWorkspace(
   projectId: string,
 ): Promise<"empty" | "ready" | "error"> {
   try {
-    const response = await fetch(`${workspaceUrl(projectId)}`, {
-      method: "HEAD",
-    });
+    const response = await fetch(`${workspaceUrl(projectId)}`, { method: "GET" });
     if (response.ok) return "ready";
     if (response.status === 404) return "empty";
     return "error";

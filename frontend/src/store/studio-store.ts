@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { Settings } from "@/types";
 import type {
   StudioIteration,
   StudioProject,
@@ -42,8 +43,10 @@ interface StudioState {
   iterations: StudioIteration[];
   lastOutcome: RunOutcome | null;
   currentRunConfig: RunOutcome["config"];
+  settings: Settings | null;
 
   setProjects: (projects: StudioProject[]) => void;
+  setSettings: (settings: Settings) => void;
   updateProject: (project: StudioProject) => void;
   setIterations: (iterations: StudioIteration[]) => void;
   setActiveProject: (projectId: string | null) => void;
@@ -71,8 +74,10 @@ export const useStudioStore = create<StudioState>((set) => ({
   iterations: [],
   lastOutcome: null,
   currentRunConfig: null,
+  settings: null,
 
   setProjects: (projects) => set({ projects }),
+  setSettings: (settings) => set({ settings }),
   updateProject: (project) =>
     set((state) => ({
       projects: state.projects.map((p) => (p.id === project.id ? project : p)),
