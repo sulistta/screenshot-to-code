@@ -37,8 +37,14 @@ export function useProjectSocket(
         }
       };
       socket.onclose = () => {
-        setConnected(false);
-        socketRef.current = null;
+        // Only tear down the shared ref if this socket is still the live
+        // one: in StrictMode the first mount closes after the second
+        // mount replaced the ref, and that late close must not null the
+        // healthy socket out.
+        if (socketRef.current === socket) {
+          socketRef.current = null;
+          setConnected(false);
+        }
         if (!disposed) {
           retryTimer = setTimeout(connect, 1500);
         }
@@ -49,8 +55,13 @@ export function useProjectSocket(
     return () => {
       disposed = true;
       if (retryTimer) clearTimeout(retryTimer);
-      socket?.close();
-      socketRef.current = null;
+      // Mark the socket as deliberately discarded before closing so its
+      // close handler does not clobber the replacement socket's ref.
+      const closing = socket;
+      if (closing && socketRef.current === closing) {
+        socketRef.current = null;
+      }
+      closing?.close();
     };
   }, [projectId]);
 

@@ -90,3 +90,20 @@ describe("studio store event handling", () => {
     expect(useStudioStore.getState().previewContent).toBe("<html>x</html>");
   });
 });
+
+it("does not duplicate the reply when the terminal event replays", () => {
+  const { handleEvent } = useStudioStore.getState();
+  handleEvent({ type: "assistant_delta", text: "Built it." });
+  const completed = {
+    type: "run_status" as const,
+    status: "completed" as const,
+    runId: "r1",
+    iterationId: "i001",
+    filesChanged: ["index.html"],
+  };
+  handleEvent(completed);
+  handleEvent(completed); // replay (socket reconnect)
+  handleEvent(completed);
+  const { transcript } = useStudioStore.getState();
+  expect(transcript.filter((m) => m.role === "assistant")).toHaveLength(1);
+});

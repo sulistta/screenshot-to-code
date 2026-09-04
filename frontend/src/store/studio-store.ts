@@ -120,6 +120,14 @@ export const useStudioStore = create<StudioState>((set) => ({
             .map((item) => item.text)
             .join("")
             .trim();
+          // Event replays (socket reconnect) re-deliver the terminal status;
+          // only append the reply when it is not already the last message.
+          const last = state.transcript[state.transcript.length - 1];
+          const alreadyAppended =
+            !!last &&
+            last.role === "assistant" &&
+            last.text === replyText &&
+            last.runId === (event.runId ?? null);
           return {
             runStatus: status,
             activeQuestion: null,
@@ -130,7 +138,7 @@ export const useStudioStore = create<StudioState>((set) => ({
               config: state.currentRunConfig,
             },
             transcript:
-              replyText && state.activeProjectId
+              replyText && state.activeProjectId && !alreadyAppended
                 ? [
                     ...state.transcript,
                     {
