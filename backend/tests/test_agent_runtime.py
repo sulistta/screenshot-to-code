@@ -302,3 +302,36 @@ async def test_max_steps_exceeded_raises() -> None:
     with pytest.raises(MaxStepsExceededError):
         await runtime.run(Llm.GPT_5_5_HIGH, [])
     assert runtime.status is RunStatus.FAILED
+
+
+@pytest.mark.asyncio
+async def test_multi_file_run_finalizes_self_contained() -> None:
+    session = ScriptedSession(
+        [
+            ProviderTurn(
+                assistant_text="",
+                tool_calls=[
+                    _create_call(
+                        '<html><head><script src="main.js"></script></head>'
+                        "<body></body></html>",
+                        "c1",
+                    ),
+                    ToolCall(
+                        id="c2",
+                        name="create_file",
+                        arguments={"path": "main.js", "content": "init();"},
+                    ),
+                ],
+            ),
+            ProviderTurn(assistant_text="done", tool_calls=[]),
+        ]
+    )
+    runtime = AgentRuntime(
+        session=session,
+        tool_runtime=_noop_runtime(),
+        emit=EventLog(),
+        config=RuntimeConfig(budget_usd=None),
+    )
+    result = await runtime.run(Llm.GPT_5_5_HIGH, [])
+    # The entry references main.js, so the returned document inlines it.
+    assert "<script>\ninit();\n</script>" in result

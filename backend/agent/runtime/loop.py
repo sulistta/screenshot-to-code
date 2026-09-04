@@ -16,7 +16,7 @@ from codegen.utils import extract_html_content
 from openai.types.chat import ChatCompletionMessageParam
 
 from agent.providers.base import ExecutedToolCall, ProviderSession, StreamEvent
-from agent.state import AgentFileState, ensure_str, seed_file_state_from_messages
+from agent.workspace import Workspace, ensure_str, seed_workspace_from_messages
 from agent.tools import (
     AgentToolRuntime,
     extract_content_from_args,
@@ -72,7 +72,7 @@ class AgentRuntime:
         recorder: Optional[AgentRunRecorder] = None,
         interaction: Optional[UserInteraction] = None,
         config: Optional[RuntimeConfig] = None,
-        file_state: Optional[AgentFileState] = None,
+        file_state: Optional[Workspace] = None,
     ) -> None:
         self.session = session
         self.tool_runtime = tool_runtime
@@ -98,7 +98,7 @@ class AgentRuntime:
 
     async def run(self, model: Llm, prompt_messages: List[ChatCompletionMessageParam]) -> str:
         self.tool_runtime.input_images = extract_input_images(prompt_messages)
-        seed_file_state_from_messages(self.file_state, prompt_messages)
+        seed_workspace_from_messages(self.file_state, prompt_messages)
 
         if self.recorder is not None:
             self.recorder.record_run_start(model, prompt_messages)
@@ -350,7 +350,9 @@ class AgentRuntime:
 
     async def _finalize_response(self, assistant_text: str) -> str:
         if self.file_state.content:
-            return self.file_state.content
+            # Self-contained entry document: identity for single-file runs,
+            # inlines workspace-local scripts/styles for multi-file ones.
+            return self.file_state.render_inline()
 
         html = extract_html_content(assistant_text)
         if html:

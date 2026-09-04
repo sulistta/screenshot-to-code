@@ -17,18 +17,26 @@ from image_generation.replicate import (
 )
 from uploaded_assets.tools import run_save_assets
 
-from agent.state import AgentFileState, ensure_str
+from agent.workspace import (
+    InvalidWorkspacePath,
+    Workspace,
+    ensure_str,
+    normalize_path,
+)
 from agent.tools.types import ToolCall, ToolExecutionResult, ToolMultimodalPart
 from agent.tools.summaries import summarize_text
 
 
 IMAGE_TOOL_BATCH_SIZE = 20
+# Cap for read_file output fed back to the model; big generated files stay
+# queryable without flooding context.
+READ_FILE_MAX_CHARS = 60_000
 
 
 class AgentToolRuntime:
     def __init__(
         self,
-        file_state: AgentFileState,
+        file_state: Workspace,
         should_generate_images: bool,
         openai_api_key: Optional[str],
         openai_base_url: Optional[str],
@@ -69,6 +77,10 @@ class AgentToolRuntime:
             return self._create_file(tool_call.arguments)
         if tool_call.name == "edit_file":
             return self._edit_file(tool_call.arguments)
+        if tool_call.name == "read_file":
+            return self._read_file(tool_call.arguments)
+        if tool_call.name == "list_files":
+            return self._list_files()
         if tool_call.name == "generate_images":
             return await self._generate_images(tool_call.arguments)
         if tool_call.name == "remove_backgrounds":
@@ -99,7 +111,18 @@ class AgentToolRuntime:
         )
 
     def _create_file(self, args: Dict[str, Any]) -> ToolExecutionResult:
-        path = ensure_str(args.get("path") or self.file_state.path or "index.html")
+        raw_path = ensure_str(args.get("path")).strip()
+        try:
+            path = normalize_path(
+                raw_path or self.file_state.path or "index.html",
+                self.file_state.entry_point,
+            )
+        except InvalidWorkspacePath as exc:
+            return ToolExecutionResult(
+                ok=False,
+                result={"error": str(exc)},
+                summary={"error": "Invalid path"},
+            )
         content = ensure_str(args.get("content"))
         if not content:
             return ToolExecutionResult(
@@ -109,26 +132,30 @@ class AgentToolRuntime:
             )
 
         extracted = extract_html_content(content)
-        self.file_state.path = path
-        self.file_state.content = extracted or content
+        written_path = self.file_state.write(path, extracted or content)
+        updated = (
+            self.file_state.render_inline()
+            if written_path == self.file_state.entry_point
+            else None
+        )
 
         summary = {
-            "path": self.file_state.path,
-            "contentLength": len(self.file_state.content),
-            "preview": summarize_text(self.file_state.content, 320),
+            "path": written_path,
+            "contentLength": len(self.file_state.read(written_path)),
+            "preview": summarize_text(self.file_state.read(written_path), 320),
         }
         result = {
-            "content": f"Successfully created file at {self.file_state.path}.",
+            "content": f"Successfully created file at {written_path}.",
             "details": {
-                "path": self.file_state.path,
-                "contentLength": len(self.file_state.content),
+                "path": written_path,
+                "contentLength": len(self.file_state.read(written_path)),
             },
         }
         return ToolExecutionResult(
             ok=True,
             result=result,
             summary=summary,
-            updated_content=self.file_state.content,
+            updated_content=updated,
         )
 
     @staticmethod
@@ -178,12 +205,31 @@ class AgentToolRuntime:
         return updated, min(replace_count, content.count(old_text))
 
     def _edit_file(self, args: Dict[str, Any]) -> ToolExecutionResult:
-        if not self.file_state.content:
+        if not self.file_state.files:
             return ToolExecutionResult(
                 ok=False,
                 result={"error": "No file exists yet. Call create_file first."},
                 summary={"error": "No file to edit"},
             )
+
+        # Multi-file edits target the entry file unless a path is given.
+        target_path = self.file_state.entry_point
+        raw_path = ensure_str(args.get("path")).strip()
+        if raw_path:
+            try:
+                target_path = normalize_path(raw_path, self.file_state.entry_point)
+            except InvalidWorkspacePath as exc:
+                return ToolExecutionResult(
+                    ok=False,
+                    result={"error": str(exc)},
+                    summary={"error": "Invalid path"},
+                )
+            if not self.file_state.has(target_path):
+                return ToolExecutionResult(
+                    ok=False,
+                    result={"error": f"File not found: {target_path}"},
+                    summary={"error": f"File not found: {target_path}"},
+                )
 
         edits = args.get("edits")
         if not edits:
@@ -199,7 +245,7 @@ class AgentToolRuntime:
                 summary={"error": "Invalid edits payload"},
             )
 
-        content = self.file_state.content
+        content = self.file_state.read(target_path)
         original_content = content
         summary_edits: List[Dict[str, Any]] = []
         for edit in edits:
@@ -232,18 +278,22 @@ class AgentToolRuntime:
                 }
             )
 
-        self.file_state.content = content
-        path = self.file_state.path or "index.html"
-        diff_info = self._generate_diff(original_content, content, path)
+        self.file_state.write(target_path, content)
+        diff_info = self._generate_diff(original_content, content, target_path)
+        updated = (
+            self.file_state.render_inline()
+            if target_path == self.file_state.entry_point
+            else None
+        )
         summary = {
-            "path": path,
+            "path": target_path,
             "edits": summary_edits,
-            "contentLength": len(self.file_state.content),
+            "contentLength": len(content),
             "diff": diff_info["diff"],
             "firstChangedLine": diff_info["firstChangedLine"],
         }
         result = {
-            "content": f"Successfully edited file at {path}.",
+            "content": f"Successfully edited file at {target_path}.",
             "details": {
                 "diff": diff_info["diff"],
                 "firstChangedLine": diff_info["firstChangedLine"],
@@ -253,7 +303,59 @@ class AgentToolRuntime:
             ok=True,
             result=result,
             summary=summary,
-            updated_content=self.file_state.content,
+            updated_content=updated,
+        )
+
+    def _read_file(self, args: Dict[str, Any]) -> ToolExecutionResult:
+        raw_path = ensure_str(args.get("path")).strip()
+        path = normalize_path(raw_path, self.file_state.entry_point)
+        content = self.file_state.read(path)
+        if not content:
+            return ToolExecutionResult(
+                ok=False,
+                result={
+                    "error": f"File not found: {path}",
+                    "files": self.file_state.list_files(),
+                },
+                summary={
+                    "error": f"File not found: {path}",
+                    "files": self.file_state.list_files(),
+                },
+            )
+        truncated = len(content) > READ_FILE_MAX_CHARS
+        shown = content[:READ_FILE_MAX_CHARS]
+        summary = {
+            "path": path,
+            "contentLength": len(content),
+            "truncated": truncated,
+            "preview": summarize_text(shown, 200),
+        }
+        result = {
+            "content": shown,
+            "details": {
+                "path": path,
+                "contentLength": len(content),
+                "truncated": truncated,
+            },
+        }
+        return ToolExecutionResult(ok=True, result=result, summary=summary)
+
+    def _list_files(self) -> ToolExecutionResult:
+        files = self.file_state.list_files()
+        listing = [
+            {
+                "path": path,
+                "contentLength": len(self.file_state.read(path)),
+            }
+            for path in files
+        ]
+        return ToolExecutionResult(
+            ok=True,
+            result={"files": listing},
+            summary={
+                "files": listing,
+                "entry_point": self.file_state.entry_point,
+            },
         )
 
     async def _generate_images(self, args: Dict[str, Any]) -> ToolExecutionResult:

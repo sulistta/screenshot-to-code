@@ -11,11 +11,15 @@ def _create_schema() -> Dict[str, Any]:
         "properties": {
             "path": {
                 "type": "string",
-                "description": "Path for the main HTML file. Use index.html if unsure.",
+                "description": (
+                    "Workspace-relative path. Use index.html for the entry "
+                    "page; additional files (styles.css, main.js, about.html) "
+                    "are referenced from HTML with relative URLs."
+                ),
             },
             "content": {
                 "type": "string",
-                "description": "Full HTML for the single-file app.",
+                "description": "Full content of the file.",
             },
         },
         "required": ["content"],
@@ -28,7 +32,10 @@ def _edit_schema() -> Dict[str, Any]:
         "properties": {
             "path": {
                 "type": "string",
-                "description": "Path for the main HTML file.",
+                "description": (
+                    "Workspace-relative path of the file to edit. Defaults to "
+                    "the entry page (index.html)."
+                ),
             },
             "old_text": {
                 "type": "string",
@@ -55,6 +62,26 @@ def _edit_schema() -> Dict[str, Any]:
                 },
             },
         },
+    }
+
+
+def _read_file_schema() -> Dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Workspace-relative path of the file to read.",
+            }
+        },
+        "required": ["path"],
+    }
+
+
+def _list_files_schema() -> Dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {},
     }
 
 
@@ -221,19 +248,38 @@ def canonical_tool_definitions(
         CanonicalToolDefinition(
             name="create_file",
             description=(
-                "Create the main HTML file for the app. Use exactly once to write the "
-                "full HTML. Returns a success message and file metadata."
+                "Create or fully rewrite a file in the workspace. The entry "
+                "page is index.html; create additional files (styles.css, "
+                "main.js, other pages) as needed and reference them from HTML "
+                "with relative URLs. Returns a success message and file "
+                "metadata."
             ),
             parameters=_create_schema(),
         ),
         CanonicalToolDefinition(
             name="edit_file",
             description=(
-                "Edit the main HTML file using exact string replacements. Do not "
-                "regenerate the entire file. Returns a success message plus edit "
+                "Edit a workspace file using exact string replacements. Do not "
+                "regenerate entire files. Returns a success message plus edit "
                 "details, including a unified diff and first changed line."
             ),
             parameters=_edit_schema(),
+        ),
+        CanonicalToolDefinition(
+            name="read_file",
+            description=(
+                "Read the full content of a workspace file. Use before editing "
+                "a file you did not just write, and to inspect sibling files."
+            ),
+            parameters=_read_file_schema(),
+        ),
+        CanonicalToolDefinition(
+            name="list_files",
+            description=(
+                "List every file in the workspace with its size. Use to "
+                "understand project structure before editing."
+            ),
+            parameters=_list_files_schema(),
         ),
     ]
     if image_generation_enabled:

@@ -3,7 +3,7 @@ from typing import Any, Dict
 
 from preview_screenshot import capture_preview_screenshot
 
-from agent.state import AgentFileState
+from agent.workspace import Workspace
 from agent.tools.types import ToolExecutionResult, ToolMultimodalPart
 
 
@@ -13,16 +13,19 @@ PREVIEW_VIEWPORTS = ("desktop", "mobile")
 async def run_screenshot_preview(
     _args: Dict[str, Any],
     *,
-    file_state: AgentFileState,
+    file_state: Workspace,
 ) -> ToolExecutionResult:
-    """Render the current HTML and return screenshots.
+    """Render the current project and return screenshots.
 
     These previews are for *seeing*, not keeping: the model views them as
     attached image bytes (multimodal parts) to verify its work and never
     embeds them in its output, so they are NOT persisted as assets. A data
     URL is inlined into the summary purely so the UI can show the same preview.
     """
-    if not file_state.content:
+    # Multi-file projects are rendered self-contained so relative scripts and
+    # stylesheets resolve inside set_content.
+    html = file_state.render_inline()
+    if not html:
         return ToolExecutionResult(
             ok=False,
             result={"error": "No file exists yet. Call create_file first."},
@@ -34,7 +37,7 @@ async def run_screenshot_preview(
     try:
         for viewport in PREVIEW_VIEWPORTS:
             image_bytes = await capture_preview_screenshot(
-                file_state.content,
+                html,
                 device=viewport,
                 full_page=True,
             )
