@@ -159,7 +159,7 @@ def test_ws_question_round_trip(tmp_path, monkeypatch) -> None:
             ) as ws:
                 run_response = await http.post(
                     f"/api/projects/{project['id']}/runs",
-                    json={"text": "build a dark-themed page"},
+                    json={"text": "build a dark-themed page", "settings": {"openAiApiKey": "k"}},
                 )
                 assert run_response.status_code == 202
 

@@ -132,7 +132,7 @@ async def test_manager_run_completes_and_persists(
         events.append(event)
 
     manager.attach_sink(meta.id, sink)
-    run_id = await manager.start_run(meta.id, RunRequest(text="build a page"))
+    run_id = await manager.start_run(meta.id, RunRequest(text="build a page", settings={"openAiApiKey": "k"}))
     active = manager._active[meta.id]
     await active.task
 
@@ -171,9 +171,9 @@ async def test_manager_rejects_concurrent_runs(
 
     monkeypatch.setattr("projects.manager.create_provider_session", fake_create)
 
-    await manager.start_run(meta.id, RunRequest(text="first"))
+    await manager.start_run(meta.id, RunRequest(text="first", settings={"openAiApiKey": "k"}))
     with pytest.raises(RunAlreadyActive):
-        await manager.start_run(meta.id, RunRequest(text="second"))
+        await manager.start_run(meta.id, RunRequest(text="second", settings={"openAiApiKey": "k"}))
     gate_hold.set()
     await manager._active[meta.id].task
 
@@ -209,7 +209,7 @@ async def test_manager_ask_user_round_trip(
             questions.append(event)
 
     manager.attach_sink(meta.id, sink)
-    await manager.start_run(meta.id, RunRequest(text="build"))
+    await manager.start_run(meta.id, RunRequest(text="build", settings={"openAiApiKey": "k"}))
 
     # Wait until the question event arrives, then answer.
     for _ in range(200):
@@ -258,7 +258,7 @@ async def test_manager_cancel_keeps_partial_workspace(
         ),
     )
 
-    await manager.start_run(meta.id, RunRequest(text="go"))
+    await manager.start_run(meta.id, RunRequest(text="go", settings={"openAiApiKey": "k"}))
     await asyncio.sleep(0.2)
     assert manager.cancel(meta.id) is True
     for _ in range(200):

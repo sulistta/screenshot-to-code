@@ -1,0 +1,189 @@
+import { create } from "zustand";
+import type {
+  StudioProject,
+  StudioQuestion,
+  StudioRunEvent,
+  StudioRunStatus,
+  StudioTranscriptMessage,
+} from "@/types/studio";
+
+export interface StudioActivityItem {
+  id: string;
+  kind: "thinking" | "assistant" | "tool" | "status";
+  text: string;
+  toolName?: string;
+  ok?: boolean;
+}
+
+interface StudioState {
+  projects: StudioProject[];
+  activeProjectId: string | null;
+  transcript: StudioTranscriptMessage[];
+  /** Live activity for the current run (not yet in the transcript). */
+  activity: StudioActivityItem[];
+  previewContent: string | null;
+  /** Bumped when the live workspace changed; the preview iframe reloads. */
+  previewNonce: number;
+  runStatus: StudioRunStatus | null;
+  activeQuestion: StudioQuestion | null;
+  error: string | null;
+
+  setProjects: (projects: StudioProject[]) => void;
+  setActiveProject: (projectId: string | null) => void;
+  setTranscript: (messages: StudioTranscriptMessage[]) => void;
+  setPreviewContent: (content: string | null) => void;
+  bumpPreview: () => void;
+  setError: (message: string | null) => void;
+  clearActivity: () => void;
+  handleEvent: (event: StudioRunEvent) => void;
+}
+
+let activityCounter = 0;
+const nextActivityId = () => `evt-${activityCounter++}`;
+
+export const useStudioStore = create<StudioState>((set) => ({
+  projects: [],
+  activeProjectId: null,
+  transcript: [],
+  activity: [],
+  previewContent: null,
+  previewNonce: 0,
+  runStatus: null,
+  activeQuestion: null,
+  error: null,
+
+  setProjects: (projects) => set({ projects }),
+  bumpPreview: () => set((state) => ({ previewNonce: state.previewNonce + 1 })),
+  setActiveProject: (projectId) =>
+    set({
+      activeProjectId: projectId,
+      transcript: [],
+      activity: [],
+      previewContent: null,
+      runStatus: null,
+      activeQuestion: null,
+      error: null,
+    }),
+  setTranscript: (transcript) => set({ transcript }),
+  setPreviewContent: (content) => set({ previewContent: content }),
+  setError: (error) => set({ error }),
+  clearActivity: () => set({ activity: [] }),
+
+  handleEvent: (event) => {
+    if (event.type === "run_status") {
+      const status = event.status as StudioRunStatus | undefined;
+      set((state) => {
+        if (status && status !== "running") {
+          // Move the live activity into the transcript as the run's reply.
+          const replyText = state.activity
+            .filter((item) => item.kind === "assistant")
+            .map((item) => item.text)
+            .join("")
+            .trim();
+          return {
+            runStatus: status,
+            activeQuestion: null,
+            transcript:
+              replyText && state.activeProjectId
+                ? [
+                    ...state.transcript,
+                    {
+                      role: "assistant" as const,
+                      text: replyText,
+                      createdAt: new Date().toISOString(),
+                      runId: event.runId ?? null,
+                      images: [],
+                    },
+                  ]
+                : state.transcript,
+            activity: [],
+            previewNonce: state.previewNonce + 1,
+          };
+        }
+        return { runStatus: status ?? "running", activeQuestion: null };
+      });
+      return;
+    }
+
+    if (event.type === "question") {
+      set({
+        activeQuestion: {
+          questionId: event.questionId ?? "",
+          question: event.question ?? "",
+          options: event.options ?? null,
+        },
+        runStatus: "waiting_for_user",
+      });
+      return;
+    }
+
+    if (event.type === "set_code") {
+      if (event.content) {
+        set({ previewContent: event.content });
+      }
+      return;
+    }
+
+    set((state) => {
+      const activity = [...state.activity];
+      const last = activity[activity.length - 1];
+
+      if (event.type === "thinking_delta" || event.type === "assistant_delta") {
+        const kind = event.type === "thinking_delta" ? "thinking" : "assistant";
+        if (last && last.kind === kind && last.id === activity[activity.length - 1].id) {
+          // Streaming deltas accumulate on the last item of the same kind,
+          // unless a tool item came between (then a new one starts).
+          const updated = { ...last, text: last.text + (event.text ?? "") };
+          activity[activity.length - 1] = updated;
+        } else {
+          activity.push({
+            id: nextActivityId(),
+            kind,
+            text: event.text ?? "",
+          });
+        }
+        return { activity };
+      }
+
+      if (event.type === "tool_start") {
+        activity.push({
+          id: nextActivityId(),
+          kind: "tool",
+          text: "",
+          toolName: event.name ?? "tool",
+        });
+        return { activity };
+      }
+
+      if (event.type === "tool_result") {
+        // Attach the result to the last tool item with no outcome yet.
+        for (let i = activity.length - 1; i >= 0; i -= 1) {
+          const item = activity[i];
+          if (item.kind === "tool" && item.ok === undefined) {
+            activity[i] = {
+              ...item,
+              ok: event.ok ?? true,
+              text:
+                typeof event.output === "object" && event.output !== null
+                  ? JSON.stringify(event.output).slice(0, 200)
+                  : "",
+            };
+            break;
+          }
+        }
+        return { activity };
+      }
+
+      if (event.type === "status") {
+        activity.push({
+          id: nextActivityId(),
+          kind: "status",
+          text: event.message ?? "",
+        });
+        return { activity };
+      }
+
+      return {};
+    });
+  },
+}));

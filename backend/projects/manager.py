@@ -341,7 +341,10 @@ def resolve_model(settings: Dict[str, Any]) -> Llm:
             return model
         if model in GEMINI_MODELS and keys["gemini_api_key"]:
             return model
-    return ALL_KEYS_MODELS_DEFAULT[0]
+    raise ValueError(
+        "No model API key available. Add OPENAI_API_KEY, ANTHROPIC_API_KEY, "
+        "or GEMINI_API_KEY to the backend environment."
+    )
 
 
 async def build_run_prompts(

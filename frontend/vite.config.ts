@@ -22,6 +22,8 @@ export default ({ mode }) => {
         "/generate-code": { target: CODEGEN_BACKEND, ws: true },
         "/api": { target: CODEGEN_BACKEND },
         "/local-assets": { target: CODEGEN_BACKEND },
+        "/workspace": { target: CODEGEN_BACKEND, ws: true },
+        "/ws": { target: CODEGEN_BACKEND, ws: true },
       },
     },
     plugins: [
