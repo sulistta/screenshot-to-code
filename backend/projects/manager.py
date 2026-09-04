@@ -137,7 +137,11 @@ class ProjectRunManager:
         workspace: Optional[Workspace] = None
         try:
             workspace = self.store.load_workspace(project_id)
-            prompt_messages = await build_run_prompts(workspace, request)
+            prompt_messages = await build_run_prompts(
+                workspace,
+                request,
+                history=self.store.read_transcript(project_id)[:-1],
+            )
 
             settings = request.settings
             model = resolve_model(settings)
@@ -341,15 +345,24 @@ def resolve_model(settings: Dict[str, Any]) -> Llm:
 
 
 async def build_run_prompts(
-    workspace: Workspace, request: RunRequest
+    workspace: Workspace,
+    request: RunRequest,
+    history: Optional[List[TranscriptMessage]] = None,
 ) -> List[ChatCompletionMessageParam]:
     """Conversation prompts for a project run.
 
-    First run (empty workspace) builds a creation prompt from the brief;
-    later runs build an update prompt over the current entry file.
+    Uses the studio system prompt (creative direction + durable project
+    guidance). First run (empty workspace) builds a creation prompt from the
+    brief; later runs build an update prompt over the current entry file.
+    Prior transcript turns are replayed as chat history so the agent keeps
+    conversational context across runs.
     """
     from prompts.pipeline import build_prompt_messages
-    from prompts.prompt_types import UserTurnInput
+    from prompts.prompt_types import (
+        PromptHistoryMessage,
+        UserTurnInput,
+    )
+    from prompts.studio_system_prompt import STUDIO_SYSTEM_PROMPT
 
     stack = str(request.settings.get("generatedCodeConfig", "html_tailwind"))
     input_mode = "image" if request.images else "text"
@@ -364,6 +377,12 @@ async def build_run_prompts(
     else:
         generation_type = "create"
 
+    chat_history: List[PromptHistoryMessage] = [
+        {"role": message.role, "text": message.text, "images": [], "videos": []}
+        for message in (history or [])
+        if message.role in ("user", "assistant") and message.text
+    ]
+
     messages = await build_prompt_messages(
         stack=stack,  # type: ignore[arg-type]
         input_mode=input_mode,  # type: ignore[arg-type]
@@ -375,5 +394,16 @@ async def build_run_prompts(
             request.settings.get("isImageGenerationEnabled", True)
         ),
         design_system=request.settings.get("designSystem"),
+        system_prompt_override=STUDIO_SYSTEM_PROMPT,
     )
-    return list(messages)
+    if not chat_history:
+        return list(messages)
+
+    # The pipeline's history strategies replace the current turn; the studio
+    # flow needs transcript context AND the new message AND the file
+    # snapshot, so splice transcript turns in after the system prompt.
+    transcript: List[ChatCompletionMessageParam] = [
+        {"role": message["role"], "content": message["text"]}  # type: ignore[typeddict-item]
+        for message in chat_history
+    ]
+    return [messages[0], *transcript, *messages[1:]]  # type: ignore[list-item]

@@ -7,6 +7,7 @@ from codegen.utils import extract_html_content
 from config import REPLICATE_API_KEY
 from agent.tools.extract_assets import run_extract_assets
 from agent.tools.local_assets import guess_image_mime, local_asset_url_to_data_url
+from agent.tools.research import fetch_research
 from agent.tools.screenshot_preview import run_screenshot_preview
 from image_generation.generation import process_tasks
 from image_generation.replicate import (
@@ -81,6 +82,8 @@ class AgentToolRuntime:
             return self._read_file(tool_call.arguments)
         if tool_call.name == "list_files":
             return self._list_files()
+        if tool_call.name == "research":
+            return await self._research(tool_call.arguments)
         if tool_call.name == "generate_images":
             return await self._generate_images(tool_call.arguments)
         if tool_call.name == "remove_backgrounds":
@@ -355,6 +358,32 @@ class AgentToolRuntime:
             summary={
                 "files": listing,
                 "entry_point": self.file_state.entry_point,
+            },
+        )
+
+    async def _research(self, args: Dict[str, Any]) -> ToolExecutionResult:
+        url = ensure_str(args.get("url")).strip()
+        if not url:
+            return ToolExecutionResult(
+                ok=False,
+                result={"error": "research requires a url"},
+                summary={"error": "Missing url"},
+            )
+        outcome = await fetch_research(url)
+        if not outcome.get("ok"):
+            return ToolExecutionResult(
+                ok=False,
+                result=outcome,
+                summary={"error": outcome.get("error", "Fetch failed")},
+            )
+        return ToolExecutionResult(
+            ok=True,
+            result=outcome,
+            summary={
+                "url": outcome.get("url"),
+                "title": outcome.get("title"),
+                "contentLength": len(outcome.get("content", "")),
+                "truncated": outcome.get("truncated", False),
             },
         )
 

@@ -8,6 +8,11 @@ from prompts.update import (
     build_update_prompt_from_history,
 )
 
+# The studio (durable project) flow swaps in its own system prompt; builders
+# hardcode prompts.system_prompt.SYSTEM_PROMPT, so overriding is done by
+# patching the module attribute the builders read.
+import prompts.system_prompt as system_prompt  # noqa: F401
+
 
 async def build_prompt_messages(
     stack: Stack,
@@ -18,6 +23,35 @@ async def build_prompt_messages(
     file_state: dict[str, str] | None = None,
     image_generation_enabled: bool = True,
     design_system: str | None = None,
+    system_prompt_override: str | None = None,
+) -> Prompt:
+    original_system_prompt = system_prompt.SYSTEM_PROMPT
+    if system_prompt_override:
+        system_prompt.SYSTEM_PROMPT = system_prompt_override
+    try:
+        return await _build_with_plan(
+            stack=stack,
+            input_mode=input_mode,
+            generation_type=generation_type,
+            prompt=prompt,
+            history=history,
+            file_state=file_state,
+            image_generation_enabled=image_generation_enabled,
+            design_system=design_system,
+        )
+    finally:
+        system_prompt.SYSTEM_PROMPT = original_system_prompt
+
+
+async def _build_with_plan(
+    stack: Stack,
+    input_mode: InputMode,
+    generation_type: str,
+    prompt: UserTurnInput,
+    history: list[PromptHistoryMessage],
+    file_state: dict[str, str] | None,
+    image_generation_enabled: bool,
+    design_system: str | None,
 ) -> Prompt:
     plan = derive_prompt_construction_plan(
         stack=stack,

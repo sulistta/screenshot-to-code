@@ -85,6 +85,19 @@ def _list_files_schema() -> Dict[str, Any]:
     }
 
 
+def _research_schema() -> Dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "url": {
+                "type": "string",
+                "description": "The public http(s) URL of the documentation, article, or reference page to read.",
+            }
+        },
+        "required": ["url"],
+    }
+
+
 def _image_schema() -> Dict[str, Any]:
     return {
         "type": "object",
@@ -367,6 +380,19 @@ def canonical_tool_definitions(
                 parameters=_ask_user_schema(),
             )
         )
+    tools.append(
+        CanonicalToolDefinition(
+            name="research",
+            description=(
+                "Fetch a public web page (docs, API references, articles, "
+                "libraries) and return its readable text. Use it when a "
+                "technique, API, or compatibility detail matters and you are "
+                "not certain — do not guess. Returns title + main text, "
+                "truncated."
+            ),
+            parameters=_research_schema(),
+        )
+    )
     tools.extend(
         [
             SAVE_ASSETS_TOOL_DEFINITION,
