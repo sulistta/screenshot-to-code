@@ -124,6 +124,7 @@ function ConfigBar({ project }: { project: StudioProject }) {
   const setError = useStudioStore((state) => state.setError);
   const settings = useStudioStore((state) => state.settings);
   const [editing, setEditing] = useState(false);
+  const [modeOpen, setModeOpen] = useState(false);
 
   const save = async (
     patch: Partial<StudioProject> & {
@@ -181,7 +182,7 @@ function ConfigBar({ project }: { project: StudioProject }) {
         onChange={(value) => save({ subagentModel: value })}
         settings={settings}
       />
-      <Popover open={editing} onOpenChange={setEditing}>
+      <Popover open={modeOpen} onOpenChange={setModeOpen}>
         <PopoverTrigger asChild>
           <button
             className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 -mx-1.5 text-[11px] text-foreground/80 hover:bg-secondary transition-colors"
@@ -212,7 +213,7 @@ function ConfigBar({ project }: { project: StudioProject }) {
                 }`}
                 onClick={() => {
                   save({ executionMode: mode });
-                  setEditing(false);
+                  setModeOpen(false);
                 }}
               >
                 <span className="flex w-full items-center justify-between text-xs font-medium">
