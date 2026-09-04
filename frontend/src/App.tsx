@@ -58,7 +58,6 @@ function App() {
     addCommit,
     removeCommit,
     setHead,
-    appendCommitCode,
     setCommitCode,
     resetCommits,
     resetHead,
@@ -431,9 +430,6 @@ function App() {
     };
 
     generateCode(wsRef, updatedParams, {
-      onChange: (token, variantIndex) => {
-        appendCommitCode(commit.hash, variantIndex, token);
-      },
       onSetCode: (code, variantIndex) => {
         setCommitCode(commit.hash, variantIndex, code);
       },

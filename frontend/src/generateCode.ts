@@ -13,7 +13,6 @@ const CANCEL_MESSAGE = "Code generation cancelled";
 
 type WebSocketResponse = {
   type:
-    | "chunk"
     | "status"
     | "setCode"
     | "error"
@@ -32,7 +31,6 @@ type WebSocketResponse = {
 };
 
 interface CodeGenerationCallbacks {
-  onChange: (chunk: string, variantIndex: number) => void;
   onSetCode: (code: string, variantIndex: number) => void;
   onStatusUpdate: (status: string, variantIndex: number) => void;
   onVariantComplete: (variantIndex: number) => void;
@@ -67,9 +65,7 @@ export function generateCode(
 
   ws.addEventListener("message", async (event: MessageEvent) => {
     const response = JSON.parse(event.data) as WebSocketResponse;
-    if (response.type === "chunk") {
-      callbacks.onChange(response.value || "", response.variantIndex);
-    } else if (response.type === "status") {
+    if (response.type === "status") {
       callbacks.onStatusUpdate(response.value || "", response.variantIndex);
     } else if (response.type === "setCode") {
       callbacks.onSetCode(response.value || "", response.variantIndex);

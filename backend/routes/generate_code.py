@@ -40,7 +40,6 @@ from utils import print_prompt_preview
 
 # WebSocket message types
 MessageType = Literal[
-    "chunk",
     "status",
     "setCode",
     "error",

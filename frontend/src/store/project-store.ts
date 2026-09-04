@@ -36,11 +36,6 @@ interface ProjectStore {
     numVariant: number,
     code: string
   ) => void;
-  appendVariantThinking: (
-    hash: CommitHash,
-    numVariant: number,
-    thinking: string
-  ) => void;
   setCommitCode: (hash: CommitHash, numVariant: number, code: string) => void;
   appendVariantHistoryMessage: (
     hash: CommitHash,
@@ -178,30 +173,6 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
             variants: commit.variants.map((v, index) =>
               index === numVariant
                 ? { ...v, code: v.code + code, thinkingDuration: duration }
-                : v
-            ),
-          },
-        },
-      };
-    }),
-  appendVariantThinking: (hash: CommitHash, numVariant: number, thinking: string) =>
-    set((state) => {
-      const commit = state.commits[hash];
-      // Don't update if the commit is already committed
-      if (commit.isCommitted) {
-        throw new Error("Attempted to append thinking to a committed commit");
-      }
-      return {
-        commits: {
-          ...state.commits,
-          [hash]: {
-            ...commit,
-            variants: commit.variants.map((v, index) =>
-              index === numVariant
-                ? {
-                    ...v,
-                    thinking: (v.thinking || "") + thinking,
-                  }
                 : v
             ),
           },
