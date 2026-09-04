@@ -12,7 +12,7 @@ transports that can only display one document (the current variant-flow
 iframe) still show correct multi-file projects; it never mutates the files.
 """
 import re
-from typing import Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, cast
 
 from codegen.utils import extract_html_content
 ENTRY_POINT = "index.html"
@@ -168,9 +168,13 @@ class Workspace:
 
 def seed_workspace_from_messages(
     workspace: Workspace,
-    prompt_messages: List[Dict[str, object]],
+    prompt_messages: List[Any],
 ) -> None:
-    """Seed the entry file from prior conversation content (update flow)."""
+    """Seed the entry file from prior conversation content (update flow).
+
+    Messages are provider-agnostic OpenAI-shaped dicts; typed as Any because
+    ChatCompletionMessageParam unions resolve to plain dicts here.
+    """
     if workspace.content:
         return
 
@@ -208,7 +212,7 @@ def _extract_text_content(message: Dict[str, object]) -> str:
             if not isinstance(part, dict):
                 continue
             if part.get("type") == "text":
-                value = part.get("text")
+                value = cast(object, part.get("text"))
                 if isinstance(value, str):
                     return value
     return ""

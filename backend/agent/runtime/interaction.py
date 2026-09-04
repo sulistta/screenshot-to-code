@@ -8,7 +8,7 @@ touching the loop.
 import asyncio
 import uuid
 from dataclasses import dataclass
-from typing import Optional, Protocol
+from typing import Callable, Optional, Protocol
 
 
 @dataclass
@@ -31,6 +31,7 @@ class UserInteraction(Protocol):
         question: str,
         options: Optional[list[str]] = None,
         context: Optional[str] = None,
+        question_id: Optional[str] = None,
     ) -> str:
         """Ask the user and block until an answer arrives."""
         ...
@@ -39,42 +40,45 @@ class UserInteraction(Protocol):
 class QuestionGate:
     """UserInteraction backed by futures, answered by an external transport.
 
-    One gate per run. The transport calls ``deliver`` when the user replies;
-    ``cancel`` unblocks a parked run with the given exception (used when the
-    socket dies mid-question).
+    One gate per run. When a question is asked, the optional ``on_question``
+    callback fires (transports use it to push the question to the UI);
+    ``deliver`` resolves the parked ask. ``cancel`` unblocks a parked run
+    with the given exception (used when the run is torn down).
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self, on_question: Optional[Callable[[UserQuestion], None]] = None
+    ) -> None:
         self._pending: dict[str, asyncio.Future[str]] = {}
         self._cancelled: Optional[Exception] = None
+        self._on_question = on_question
 
     async def ask(
         self,
         question: str,
         options: Optional[list[str]] = None,
         context: Optional[str] = None,
+        question_id: Optional[str] = None,
     ) -> str:
         if self._cancelled is not None:
             raise self._cancelled
-        question_id = uuid.uuid4().hex
+        # Callers pass their own event id so UI answers can address the
+        # pending future without a second id mapping.
+        id_value = question_id or uuid.uuid4().hex
         future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
-        self._pending[question_id] = future
-        self.on_question(
-            UserQuestion(
-                question=question,
-                options=options,
-                context=context,
-                id=question_id,
-            )
+        self._pending[id_value] = future
+        user_question = UserQuestion(
+            question=question,
+            options=options,
+            context=context,
+            id=id_value,
         )
+        if self._on_question is not None:
+            self._on_question(user_question)
         try:
             return await future
         finally:
-            self._pending.pop(question_id, None)
-
-    def on_question(self, question: UserQuestion) -> None:
-        """Hook for transports to observe new questions (send to UI, persist)."""
-        return None
+            self._pending.pop(id_value, None)
 
     def deliver(self, answer: str, question_id: Optional[str] = None) -> bool:
         """Answer the oldest pending question (or a specific one).

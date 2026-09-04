@@ -297,7 +297,7 @@ class AgentRuntime:
                 )
             )
             answer = await self.interaction.ask(
-                question, options=options, context=None
+                question, options=options, context=None, question_id=tool_event_id
             )
         finally:
             self.status = RunStatus.RUNNING
