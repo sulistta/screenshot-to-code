@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import StudioPage from "./StudioPage";
@@ -30,6 +30,8 @@ function setup() {
 it("preserves subscription and draft while Settings is open and receives events", async () => {
   setup();
   const input = await screen.findByRole("textbox", { name: "Message" });
+  expect(document.querySelector(".conversation-message")).toBeNull();
+  expect(screen.getByText("Your idea starts here")).toBeInTheDocument();
   fireEvent.change(input, { target: { value: "Next idea" } });
   fireEvent.click(screen.getByRole("button", { name: "Settings" }));
   expect(screen.getByText("Preferences panel")).toBeInTheDocument();
@@ -37,7 +39,8 @@ it("preserves subscription and draft while Settings is open and receives events"
   fireEvent.click(screen.getByRole("button", { name: "Close" }));
   expect(screen.getByRole("textbox", { name: "Message" })).toBe(input);
   expect(input).toHaveValue("Next idea");
-  expect(screen.getByText("Finished in background")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "History" }));
+  expect(within(screen.getByRole("dialog")).getByText("Finished in background")).toBeInTheDocument();
   expect(mockSubscribe).toHaveBeenCalledTimes(1);
   expect(mockUnsubscribe).not.toHaveBeenCalled();
 });
@@ -47,7 +50,7 @@ it("reveals saved results once and respects a manual collapse after later update
   expect(container.querySelector(".layout-conversation")).toBeInTheDocument();
   await act(async () => { client.setQueryData(["files", "p"], { files: { "index.html": "First" }, revision: "2" }); });
   await waitFor(() => expect(container.querySelector(".layout-split")).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "Conversation" }));
+  fireEvent.click(screen.getByRole("button", { name: "Overview" }));
   await act(async () => { client.setQueryData(["files", "p"], { files: { "index.html": "Updated" }, revision: "3" }); });
   expect(container.querySelector(".layout-conversation")).toBeInTheDocument();
   expect(sessionStorage.getItem("result-layout:p")).toBe("conversation");

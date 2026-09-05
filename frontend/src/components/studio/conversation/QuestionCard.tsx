@@ -41,7 +41,6 @@ export function QuestionCard({ send }: { send: (payload: Record<string, unknown>
 
   return (
     <div className="question-card">
-      <h2 className="text-sm font-medium">A quick question</h2>
       <p className="mt-1.5 text-[13.5px] text-stone-500 dark:text-zinc-400 leading-relaxed">{activeQuestion.question}</p>
       {options.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Suggested answers">

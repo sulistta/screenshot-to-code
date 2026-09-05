@@ -217,7 +217,6 @@ function ForgeSidebar({
         </span>
         <span>
           <span className="forge-brand-name">Forge</span>
-          <span className="block forge-brand-tag">Build what&apos;s next.</span>
         </span>
       </div>
 
@@ -380,20 +379,20 @@ function ProjectDetail({ project, settings }: { project: StudioProject; settings
     sessionStorage.setItem(`result-layout:${project.id}`, next);
   };
   return <section className={`project-workspace layout-${layout}`} aria-label="Project workspace">
-    {question && <button className="workspace-question-notice" onClick={() => changeLayout("conversation")}>Your answer is needed · Open conversation</button>}
+    {question && <button className="workspace-question-notice" onClick={() => changeLayout("conversation")}>Your answer is needed · Review decision</button>}
     <header className="workspace-heading">
       <h1 title={project.name}>{project.name}</h1>
       <div className="workspace-actions">
-        {layout !== "conversation" && <button onClick={() => changeLayout("conversation")}>Conversation</button>}
+        {layout !== "conversation" && <button onClick={() => changeLayout("conversation")}>Overview</button>}
         {layout === "conversation" && <button onClick={() => changeLayout("split")}>Show result</button>}
         {layout === "split" && <button onClick={() => changeLayout("result")}>Expand result</button>}
-        {layout === "result" && <button onClick={() => changeLayout("split")}>Show conversation</button>}
+        {layout === "result" && <button onClick={() => changeLayout("split")}>Show overview</button>}
         <button onClick={() => setDetails(true)}>Details</button>
       </div>
     </header>
     <div className="workspace-panels">
       <div className="workspace-conversation" aria-hidden={layout === "result" ? true : undefined}>
-        <ConversationColumn projectId={project.id} settings={settings} send={send} connected={connected} />
+        <ConversationColumn projectId={project.id} settings={settings} send={send} connected={connected} onDetails={() => setDetails(true)} />
       </div>
       <div className="workspace-result" aria-hidden={layout === "conversation" ? true : undefined}>
         <StudioWorkbench projectId={project.id} />

@@ -17,6 +17,9 @@ const runtimeEnv = {
   XDG_DATA_HOME: path.join(scratch, 'data'),
   XDG_CONFIG_HOME: path.join(scratch, 'config'),
   WEBKIT_DISABLE_DMABUF_RENDERER: '1',
+  // A virtual X11 test session does not need desktop portal mounts.
+  GTK_USE_PORTAL: '0',
+  GIO_USE_VFS: 'local',
 };
 const sockets = new Set();
 const provider = http.createServer(async (request, response) => {
@@ -219,7 +222,26 @@ try {
     await until(() => script('return !!document.querySelector(".layout-split iframe")'), 'adaptive preview reveal');
     assert.equal(await script(`return document.querySelector('[aria-label="Message"]').value`), 'Keep my next change');
     await shot('/tmp/forge-workspace.png');
-    await clickText('button', 'Conversation');
+    assert.equal(await script('return document.querySelectorAll(".conversation-message").length'), 0, 'message stream stays out of the primary workspace');
+    for (const [width, height] of [[800, 600], [1024, 768], [1440, 940]]) {
+      await wd('POST', `/session/${session}/window/rect`, { width, height });
+      assert.equal(await script('return document.documentElement.scrollWidth <= innerWidth'), true, `no horizontal overflow at ${width}`);
+      await shot(`/tmp/forge-workspace-${width}.png`);
+    }
+    await clickText('button', 'History');
+    assert.ok(await script('return document.querySelector(".forge-history-dialog")?.textContent.includes("Native generation complete")'));
+    await clickText('button', 'Close', '[role="dialog"]');
+    await clickText('button', 'Code');
+    await until(() => script('return !!document.querySelector(".cm-editor")'), 'source editor');
+    await shot('/tmp/forge-code.png');
+    await script('window.__forgeEditor = document.querySelector(".cm-editor"); window.__forgePreview = document.querySelector("iframe")');
+    await clickText('button', 'Preview');
+    assert.equal(await script('return window.__forgePreview === document.querySelector("iframe")'), true, 'preview stays mounted across views');
+    await clickText('button', 'Code');
+    assert.equal(await script('return window.__forgeEditor === document.querySelector(".cm-editor")'), true, 'editor stays mounted across views');
+    await clickText('button', 'Preview');
+
+    await clickText('button', 'Overview');
     assert.equal(await script('return !!document.querySelector(".layout-conversation")'), true);
     await clickText('button', 'Show result');
     await clickText('button', 'Details');
@@ -271,9 +293,8 @@ try {
   });
 
   await step('reduced motion wiring', async () => {
-    const probe = await script(`const el=document.createElement("div");el.className="scan-sweep";el.style.position="absolute";document.body.appendChild(el);const name=getComputedStyle(el).animationName;const mq=window.matchMedia("(prefers-reduced-motion: reduce)");const out={name,hasQuery:typeof mq.matches==="boolean"};el.remove();return out;`);
-    assert.equal(probe.name, 'scan-sweep', `scan animation missing: ${probe.name}`);
-    assert.equal(probe.hasQuery, true);
+    const probe = await script(`const host=document.createElement("div");host.className="studio-shell";const el=document.createElement("div");el.className="stage-mark is-working";el.innerHTML="<span></span>";host.appendChild(el);document.body.appendChild(host);const mq=window.matchMedia("(prefers-reduced-motion: reduce)");const out={name:getComputedStyle(el.firstChild).animationName,reduced:mq.matches};host.remove();return out;`);
+    assert.equal(probe.name, probe.reduced ? 'none' : 'stage-ripple');
   });
 
   await step('service crash shows restart', async () => {

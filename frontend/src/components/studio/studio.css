@@ -172,3 +172,51 @@
 .workspace-question-notice { text-align:left; font-size:12px; color:var(--forge-accent); padding:var(--space-sm); border-bottom:1px solid var(--forge-border); }
 .run-completion { font-size:12px; color:var(--forge-muted); padding:var(--space-sm) 0; }
 .composer-example.example-hidden { visibility:hidden; }
+
+/* The active project is a creation stage. Conversation is an optional history. */
+.studio-stage-scroll { flex:1; min-height:0; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
+.creation-stage { display:flex; flex-direction:column; min-height:100%; padding:var(--space-md) var(--space-sm) var(--space-xl); }
+.stage-brief { font-size:12px; color:var(--forge-muted); flex-shrink:0; }
+.stage-brief summary { cursor:pointer; }
+.stage-brief summary > span { font-size:11px; }
+.stage-brief summary p { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; line-height:1.6; color:var(--forge-ink); margin:var(--space-sm) 0 0; }
+.stage-brief[open] summary p { display:none; }
+.stage-brief > div { white-space:pre-wrap; overflow-wrap:anywhere; color:var(--forge-ink); line-height:1.7; padding-top:var(--space-sm); }
+.stage-references { display:flex; gap:var(--space-sm); padding-top:var(--space-md); flex-wrap:wrap; }
+.stage-references button { width:64px; height:64px; border-radius:var(--radius-control); overflow:clip; border:1px solid var(--forge-border); }
+.stage-references img { width:100%; height:100%; object-fit:cover; }
+.stage-focus { display:flex; flex:1; flex-direction:column; justify-content:center; align-items:flex-start; padding:var(--space-2xl) 0; min-height:230px; }
+.stage-mark { position:relative; display:grid; place-items:center; width:48px; height:48px; border-radius:14px; background:var(--forge-soft); color:var(--forge-accent); font-size:22px; margin-bottom:var(--space-xl); }
+.stage-mark.is-working > svg { animation:forge-breathe 2.4s var(--ease-in-out) infinite; }
+.stage-mark > span { position:absolute; inset:-5px; border:1px solid var(--forge-accent); border-radius:18px; animation:stage-ripple 2.4s var(--ease-out) infinite; }
+.stage-focus > h2 { font-size:clamp(22px,2vw,30px); line-height:1.2; font-weight:550; max-width:480px; animation:forge-enter var(--dur-enter) var(--ease-out); }
+.stage-caption,.stage-guidance { color:var(--forge-muted); font-size:13px; line-height:1.7; max-width:420px; margin-top:var(--space-md); }
+.stage-work { width:100%; max-width:480px; margin-top:var(--space-xl); }
+.stage-current-task { display:flex; align-items:center; gap:var(--space-md); text-align:left; width:100%; padding:var(--space-md) 0; border-top:1px solid var(--forge-border); }
+.stage-current-task > span:nth-child(2) { flex:1; min-width:0; }
+.stage-current-task strong { display:block; font-weight:500; font-size:12px; }
+.stage-current-task > span > span { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; font-size:12px; line-height:1.6; margin-top:var(--space-xs); color:var(--forge-muted); }
+.stage-current-task > svg,.stage-files > svg { color:var(--forge-muted); flex-shrink:0; }
+.stage-files { display:flex; align-items:center; gap:var(--space-sm); width:100%; font-size:11px; color:var(--forge-muted); padding:var(--space-md) 0; }
+.stage-files > span { flex:1; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; text-align:left; }
+.stage-placeholder { display:flex; flex-direction:column; gap:var(--space-md); width:min(100%,280px); padding:var(--space-sm) 0; }
+.stage-placeholder > span { height:6px; border-radius:3px; background:var(--forge-border); transform-origin:left; animation:stage-placeholder 2s var(--ease-in-out) infinite; }
+.stage-placeholder > span:nth-child(2) { width:78%; animation-delay:150ms; }
+.stage-placeholder > span:nth-child(3) { width:54%; animation-delay:300ms; }
+.stage-summary { margin-top:var(--space-lg); max-width:100%; font-size:12px; }
+.stage-summary summary { cursor:pointer; color:var(--forge-muted); }
+.stage-summary p { white-space:pre-wrap; overflow-wrap:anywhere; font-size:13px; line-height:1.75; padding:var(--space-md) 0; }
+.stage-focus .question-card { width:100%; padding:0; border:0; margin:var(--space-lg) 0 0; }
+.stage-focus .question-card > p:first-child { margin:0; font-size:15px; color:var(--forge-ink); }
+.creation-stage[data-phase="failed"] .stage-mark { color:var(--forge-danger); }
+.session-dock-label { flex:1; }
+.session-history { color:var(--forge-muted); padding:var(--space-xs) var(--space-sm); border-radius:var(--radius-control); }
+.session-history:hover { background:var(--forge-soft); color:var(--forge-ink); }
+.forge-history-dialog { display:flex; flex-direction:column; width:calc(100vw - 32px); max-width:760px; height:min(760px,calc(100dvh - 64px)); background:var(--forge-paper); color:var(--forge-ink); border-color:var(--forge-border); border-radius:var(--radius-panel); }
+.forge-reference-dialog { width:calc(100vw - 32px); max-width:1000px; max-height:calc(100dvh - 64px); background:var(--forge-paper); }
+.forge-reference-dialog img { max-height:calc(100dvh - 120px); width:100%; object-fit:contain; }
+.layout-conversation .workspace-question-notice { display:none; }
+@media (min-width:1200px) { .layout-split .workspace-question-notice { display:none; } }
+@keyframes stage-ripple { from { transform:scale(.9); opacity:.45; } to { transform:scale(1.25); opacity:0; } }
+@keyframes stage-placeholder { 50% { opacity:.45; transform:scaleX(.92); } }
+@media (prefers-reduced-motion:reduce) { .stage-mark *, .stage-placeholder > span { animation:none!important; } .stage-mark > span { display:none; } }

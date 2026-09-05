@@ -23,7 +23,6 @@ export default function WindowTitlebar({ crumb }: { crumb: ReactNode }) {
     <div className="forge-crumb min-w-0 pointer-events-none">{crumb}</div>
     <div className="forge-titlebar-drag" data-tauri-drag-region />
     <div className="forge-env">
-      <span className="forge-env-pill"><span className="forge-dot" /> Local Environment</span>
       <div className="forge-win" aria-label="Window controls">
         <button aria-label="Minimize" title="Minimize" onClick={() => void act("minimize")}><FiMinus /></button>
         <button aria-label={maximized ? "Restore window" : "Maximize"} title={maximized ? "Restore window" : "Maximize"} onClick={() => void act("toggleMaximize")}>{maximized ? <FiCopy /> : <FiSquare />}</button>
