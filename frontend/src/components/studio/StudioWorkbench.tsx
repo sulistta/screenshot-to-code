@@ -5,17 +5,108 @@ import { Button } from "@/components/ui/button";
 import { useStudioStore } from "@/store/studio-store";
 import { getServicesStatus, openPreview, listIterations, startServices, stopServices, workspaceUrl } from "@/lib/studioApi";
 import { FileDifference, getFiles, editFile, revisionDiff, restoreRevision, exportProject } from "@/lib/projectApi";
+import { loadPreference, savePreference } from "@/lib/draftPreferences";
 import ProjectTools from "./ProjectTools";
 const SourceEditor = lazy(() => import("./SourceEditor"));
 
 type View = "preview" | "code" | "history" | "compare";
+
+const draftSessionKey = (projectId: string, path: string) => `source-draft:${projectId}:${path}`;
+const draftPreferenceKey = (projectId: string, path: string) => `draft:${projectId}:${path}`;
+
+/**
+ * Unsaved file edits survive an app restart through native persistence.
+ * Session storage wins when both exist; native saves are debounced.
+ */
+function useFileDraft(projectId: string, path: string) {
+  const [draft, setDraft] = useState<string | null>(() => {
+    try {
+      return sessionStorage.getItem(draftSessionKey(projectId, path));
+    } catch {
+      return null;
+    }
+  });
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    let session: string | null = null;
+    try {
+      session = sessionStorage.getItem(draftSessionKey(projectId, path));
+    } catch {
+      session = null;
+    }
+    setDraft(session);
+    if (session === null) {
+      void loadPreference<string>(draftPreferenceKey(projectId, path)).then((saved) => {
+        if (!cancelled && saved != null) setDraft(saved);
+      });
+    }
+    return () => {
+      cancelled = true;
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
+  }, [projectId, path]);
+  const updateDraft = (text: string) => {
+    setDraft(text);
+    try {
+      sessionStorage.setItem(draftSessionKey(projectId, path), text);
+    } catch { /* ignore */ }
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      void savePreference(draftPreferenceKey(projectId, path), text).catch(() => undefined);
+    }, 800);
+  };
+  const discardDraft = () => {
+    setDraft(null);
+    try {
+      sessionStorage.removeItem(draftSessionKey(projectId, path));
+    } catch { /* ignore */ }
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    void savePreference<string | null>(draftPreferenceKey(projectId, path), null).catch(() => undefined);
+  };
+  return { draft, updateDraft, discardDraft };
+}
+
+/**
+ * Opens the project in the existing isolated Tauri preview window (no IPC,
+ * filesystem, or credentials). Only rendered when the project actually has a
+ * supported preview entry point.
+ */
+export function PreviewWindowButton({ projectId, compact }: { projectId: string; compact?: boolean }) {
+  const nonce = useStudioStore((state) => state.previewNonce);
+  const setError = useStudioStore((state) => state.setError);
+  const files = useQuery({
+    queryKey: ["files", projectId, nonce],
+    queryFn: () => getFiles(projectId),
+  });
+  const hasEntry = Boolean(files.data?.files["index.html"]);
+  const [busy, setBusy] = useState(false);
+  if (!hasEntry) return null;
+  return (
+    <button
+      className={compact
+        ? "text-[11.5px] text-stone-500 hover:text-stone-900 disabled:opacity-40"
+        : "forge-btn-secondary disabled:opacity-40"}
+      disabled={busy || files.isLoading}
+      title="Opens an isolated preview window without app access"
+      onClick={() => {
+        setBusy(true);
+        openPreview(projectId)
+          .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+          .finally(() => setBusy(false));
+      }}
+    >
+      {busy ? "Opening…" : "Abrir preview em janela"} {!compact && <FiArrowUpRight aria-hidden className="inline-block" />}
+    </button>
+  );
+}
 export default function StudioWorkbench({ projectId, view, onViewChange }: { projectId: string; view?: View; onViewChange?: (v: View) => void }) {
   const [internalView, setInternalView] = useState<View>("preview");
   const currentView = view ?? internalView;
   const setView = onViewChange ?? setInternalView;
   const [width, setWidth] = useState("fluid");
   const [path, setPath] = useState("index.html");
-  const [draft, setDraft] = useState<string | null>(null);
+  const { draft, updateDraft, discardDraft } = useFileDraft(projectId, path);
   const [busy, setBusy] = useState(false);
   const [newPath, setNewPath] = useState("");
   const [inspecting, setInspecting] = useState(false);
@@ -26,6 +117,7 @@ export default function StudioWorkbench({ projectId, view, onViewChange }: { pro
   const [opacity, setOpacity] = useState(50);
   const [comparison, setComparison] = useState<"side" | "overlay">("side");
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [toolNotice, setToolNotice] = useState("");
   const nonce = useStudioStore((state) => state.previewNonce);
   const runStatus = useStudioStore((state) => state.runStatus);
   const transcript = useStudioStore((state) => state.transcript);
@@ -66,14 +158,6 @@ export default function StudioWorkbench({ projectId, view, onViewChange }: { pro
   const images = transcript.flatMap((message) => message.images);
   const locked = busy || services.data?.state === "installing" || runStatus === "running" || runStatus === "waiting_for_user";
   const content = draft ?? files.data?.files[path] ?? "";
-  useEffect(() => {
-    const saved = sessionStorage.getItem(`source-draft:${projectId}:${path}`);
-    setDraft(saved);
-  }, [projectId, path]);
-  const updateDraft = (text: string) => {
-    setDraft(text);
-    sessionStorage.setItem(`source-draft:${projectId}:${path}`, text);
-  };
   const execute = async (action: () => Promise<unknown>) => {
     setBusy(true);
     try {
@@ -101,7 +185,17 @@ export default function StudioWorkbench({ projectId, view, onViewChange }: { pro
       </div>
       <div className="flex items-center gap-2">
         <ProjectTools projectId={projectId} />
-        <button className="text-[12px] font-medium text-stone-500 hover:text-stone-900 dark:text-zinc-400" onClick={() => execute(() => exportProject(projectId))}>Export ZIP</button>
+        <button
+          className="text-[12px] font-medium text-stone-500 hover:text-stone-900 dark:text-zinc-400 disabled:opacity-40"
+          disabled={busy}
+          title="Saves the project as a ZIP archive"
+          onClick={() => execute(async () => {
+            const saved = await exportProject(projectId);
+            // false means the native save dialog was cancelled: stay silent.
+            setToolNotice(saved ? "Archive exported" : "");
+          })}
+        >Export ZIP</button>
+        {toolNotice && <span role="status" className="text-[11.5px] text-stone-400">{toolNotice}</span>}
       </div>
     </div>
 
@@ -126,13 +220,26 @@ export default function StudioWorkbench({ projectId, view, onViewChange }: { pro
               </select>
             </label>
             <button onClick={() => { bumpPreview(); setPreviewNonce(useStudioStore.getState().previewNonce); }} className="text-[11.5px] text-stone-500 hover:text-stone-900">Refresh</button>
-            {isAppProject && (["running", "installing", "crashed"].includes(services.data?.state ?? "") ?
+            {isAppProject && services.data?.state === "crashed" ? (
+              <span className="inline-flex items-center gap-2">
+                <Button size="sm" className="h-7 text-[11.5px] rounded-lg" disabled={busy} onClick={() => execute(() => startServices(projectId))}>
+                  Restart app
+                </Button>
+              </span>
+            ) : isAppProject && (["running", "installing"].includes(services.data?.state ?? "") ?
               <button onClick={() => execute(() => stopServices(projectId))} className="text-[11.5px]">Stop app</button> :
               <Button size="sm" className="h-7 text-[11.5px] rounded-lg" disabled={services.data?.state === "installing"} onClick={() => execute(() => startServices(projectId))}>
                 {services.data?.state === "installing" ? "Starting…" : "Start app"}
               </Button>)}
-            {hasWebPreview && <button aria-pressed={inspecting} onClick={() => { setInspecting(!inspecting); setSelection(null); }} className={`text-[11.5px] px-2 py-1 rounded-md ${inspecting ? "bg-blue-50 text-blue-700" : "text-stone-500 hover:text-stone-900"}`}>{inspecting ? "Exit selection" : "Select element"}</button>}
-            {hasWebPreview && !appRunning && <button onClick={() => execute(() => openPreview(projectId))} className="text-[11.5px] text-stone-500 hover:text-stone-900">Open in Browser <FiArrowUpRight aria-hidden className="inline-block" /></button>}
+            {hasWebPreview && !appRunning && (
+              <button
+                aria-pressed={inspecting}
+                title="Select an element in the static preview to reference it in the conversation"
+                onClick={() => { setInspecting(!inspecting); setSelection(null); }}
+                className={`text-[11.5px] px-2 py-1 rounded-md ${inspecting ? "bg-blue-50 text-blue-700" : "text-stone-500 hover:text-stone-900"}`}
+              >{inspecting ? "Exit selection" : "Select element"}</button>
+            )}
+            {hasWebPreview && !appRunning && <PreviewWindowButton projectId={projectId} compact />}
           </span>
         </div>
 
@@ -187,10 +294,11 @@ export default function StudioWorkbench({ projectId, view, onViewChange }: { pro
             <option value="">Choose an image</option>{images.map((image, index) =>
               <option key={index} value={image}>Reference {index + 1}</option>)}
           </select></label>
-          <select aria-label="Comparison mode" value={comparison} onChange={(event) => setComparison(event.target.value as "side" | "overlay")} className="forge-select !py-1">
+          {images.length === 0 && <span className="text-[11.5px] text-stone-400">Attach a reference image in the conversation to compare.</span>}
+          <select aria-label="Comparison mode" value={comparison} disabled={!reference} onChange={(event) => setComparison(event.target.value as "side" | "overlay")} className="forge-select !py-1 disabled:opacity-40">
             <option value="side">Side by side</option><option value="overlay">Overlay</option>
           </select>
-          {comparison === "overlay" && <input aria-label="Reference opacity" type="range" min="0" max="100"
+          {comparison === "overlay" && <input aria-label="Reference opacity" type="range" min="0" max="100" disabled={!reference}
             value={opacity} onChange={(event) => setOpacity(Number(event.target.value))} />}
         </div>}
         <div className="flex items-center gap-2 px-4 py-2 border-t border-stone-200/70 dark:border-zinc-800 text-[11.5px] text-stone-500">
@@ -243,8 +351,15 @@ export default function StudioWorkbench({ projectId, view, onViewChange }: { pro
         <div className="code-document">
           <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-stone-200/70 dark:border-zinc-800 text-[12px]"><span className="truncate">{path}{draft !== null ? " · draft" : ""}</span>
             <Button size="sm" className="h-7 rounded-lg" disabled={locked || draft === null || !files.data} onClick={() => execute(async () => {
-              await editFile(projectId, path, content, files.data!.revision);
-              sessionStorage.removeItem(`source-draft:${projectId}:${path}`); setDraft(null);
+              try {
+                await editFile(projectId, path, content, files.data!.revision);
+              } catch (error) {
+                // A revision conflict means someone else saved first: reload
+                // so the user can merge instead of overwriting blindly.
+                await queryClient.invalidateQueries({ queryKey: ["files", projectId] });
+                throw error;
+              }
+              discardDraft();
             })}>{busy ? "Saving…" : "Save version"}</Button>
           </div>
           <Suspense fallback={<p className="p-4 text-[12px]">Loading editor…</p>}>
@@ -262,7 +377,7 @@ export default function StudioWorkbench({ projectId, view, onViewChange }: { pro
           <div><strong className="text-[13px]">{version.label}</strong><time className="block mt-0.5 text-[11.5px] text-stone-400">{new Date(version.created_at).toLocaleString()}</time>
             <p className="mt-1.5 text-[12.5px] text-stone-600 dark:text-zinc-300">{version.summary}</p></div>
           <div className="mt-2.5 flex gap-2 items-center flex-wrap text-[12px]">
-            <button className="forge-btn-secondary !py-1.5" onClick={() => execute(() => openPreview(projectId, version.id))}>Preview <FiArrowUpRight aria-hidden className="inline-block" /></button>
+            <button className="forge-btn-secondary !py-1.5 disabled:opacity-40" disabled={busy} title="Opens this version in the isolated preview window" onClick={() => execute(() => openPreview(projectId, version.id))}>Abrir preview em janela</button>
             <button className="forge-btn-secondary !py-1.5" onClick={() => execute(async () => {
               const result = await revisionDiff(projectId, version.id);
               setDifference(result.changes);

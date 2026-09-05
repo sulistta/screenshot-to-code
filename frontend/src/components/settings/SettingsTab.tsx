@@ -10,11 +10,19 @@ import { Stack } from "@/lib/stacks";
 import type { ModelOption } from "@/components/studio/modelOptions";
 import { modelDisplayName } from "@/components/studio/modelOptions";
 
+interface PersistMeta {
+  status: "saved" | "saving" | "error";
+  error: string | null;
+  retry: () => void;
+}
+
 interface Props {
   settings: Settings;
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
+  settingsMeta: PersistMeta;
   appTheme: AppTheme;
   setAppTheme: React.Dispatch<React.SetStateAction<AppTheme>>;
+  appThemeMeta: PersistMeta;
 }
 
 type SettingsSection = "providers" | "models" | "execution" | "general";
@@ -35,7 +43,7 @@ const STACK_LABEL: Record<string, string> = {
   [Stack.IONIC_TAILWIND]: "Build (Ionic)",
 };
 
-function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
+function SettingsTab({ settings, setSettings, settingsMeta, appTheme, setAppTheme, appThemeMeta }: Props) {
   const [screenshotPreviewAvailable, setScreenshotPreviewAvailable] = useState<
     boolean | null
   >(null);
@@ -118,7 +126,7 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
           )}
           {section === "general" && (
             <div className="space-y-4">
-              <GeneralSection appTheme={appTheme} setAppTheme={setAppTheme} settings={settings} setSettings={setSettings} />
+              <GeneralSection appTheme={appTheme} setAppTheme={setAppTheme} settings={settings} setSettings={setSettings} settingsMeta={settingsMeta} appThemeMeta={appThemeMeta} />
               <IntegrationsSection
                 screenshotPreviewAvailable={screenshotPreviewAvailable}
                 settings={settings}
@@ -135,9 +143,14 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
 function ModelsSection() {
   const [models, setModels] = useState<ModelOption[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const load = () => {
     setLoading(true);
-    native<ModelOption[]>("list_models").then(setModels).catch(() => undefined).finally(() => setLoading(false));
+    setError(null);
+    native<ModelOption[]>("list_models")
+      .then((items) => setModels(items))
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setLoading(false));
   };
   useEffect(load, []);
   return (
@@ -149,6 +162,7 @@ function ModelsSection() {
         </div>
         <Button variant="outline" size="sm" className="rounded-[9px]" onClick={load} disabled={loading}>⟳ {loading ? "Refreshing…" : "Refresh Models"}</Button>
       </div>
+      {error && <p role="alert" className="mt-3 text-[12.5px] text-red-600">Could not refresh models: {error}</p>}
       <div className="mt-4 overflow-x-auto rounded-xl border border-stone-200/70 dark:border-zinc-800">
         <table className="w-full text-[12.5px]">
           <thead>
@@ -177,11 +191,11 @@ function ModelsSection() {
 function ExecutionSection({ settings, setSettings }: Pick<Props, "settings" | "setSettings">) {
   return (
     <div className="forge-card p-5">
-      <h2 className="text-[15px] font-semibold">Execution Defaults</h2>
-      <p className="text-[12.5px] text-stone-500">Set the default models and execution mode for new projects and agents.</p>
-      <div className="mt-4 grid sm:grid-cols-3 gap-3">
-        <label className="flex flex-col gap-1.5 text-[12px] text-stone-500">Primary model
-          <span className="forge-select w-full"><select aria-label="Default stack" value={settings.generatedCodeConfig} onChange={(e) => setSettings((s) => ({ ...s, generatedCodeConfig: e.target.value as Stack }))}>
+      <h2 className="text-[15px] font-semibold">Execution</h2>
+      <p className="text-[12.5px] text-stone-500">Generation stack for new projects and whether the agent may produce images. Model selection stays per project (“Best available” resolves at run start).</p>
+      <div className="mt-4 grid sm:grid-cols-2 gap-3">
+        <label className="flex flex-col gap-1.5 text-[12px] text-stone-500">Generation stack
+          <span className="forge-select w-full"><select aria-label="Generation stack" value={settings.generatedCodeConfig} onChange={(e) => setSettings((s) => ({ ...s, generatedCodeConfig: e.target.value as Stack }))}>
             {Object.values(Stack).map((s) => <option key={s} value={s}>{STACK_LABEL[s] ?? s}</option>)}
           </select></span>
         </label>
@@ -194,18 +208,34 @@ function ExecutionSection({ settings, setSettings }: Pick<Props, "settings" | "s
               setSettings((s) => ({ ...s, isImageGenerationEnabled: event.target.checked }))
             }
             className="h-4 w-4 accent-stone-900"
-          /> Placeholder images
+          /> Image generation
         </label>
       </div>
-      <p className="mt-3 text-[11.5px] text-stone-400">These defaults apply to new projects. You can override them per project or agent at any time.</p>
+      <p className="mt-3 text-[11.5px] text-stone-400">When image generation is on, the agent may create images for the project; when off, it skips image work.</p>
     </div>
   );
 }
 
-function GeneralSection({ appTheme, setAppTheme }: Props) {
+function PersistStatus({ meta, what }: { meta: PersistMeta; what: string }) {
+  if (meta.status === "saving") return <span role="status" className="text-[11.5px] text-stone-400">Saving {what}…</span>;
+  if (meta.status === "error") {
+    return (
+      <span role="alert" className="text-[11.5px] text-red-600">
+        Could not save {what}: {meta.error}{" "}
+        <button className="underline" onClick={meta.retry}>Retry</button>
+      </span>
+    );
+  }
+  return <span role="status" className="text-[11.5px] text-stone-400">{what} saved</span>;
+}
+
+function GeneralSection({ appTheme, setAppTheme, settingsMeta, appThemeMeta }: Props) {
   return (
     <div className="forge-card p-5">
-      <h2 className="text-[15px] font-semibold">General</h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-[15px] font-semibold">General</h2>
+        <PersistStatus meta={appThemeMeta} what="Theme" />
+      </div>
       <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-stone-200/70 dark:border-zinc-800 px-4 py-3">
         <div>
           <span className="text-[13px] font-medium">App Theme</span>
@@ -222,6 +252,10 @@ function GeneralSection({ appTheme, setAppTheme }: Props) {
           <option value={AppTheme.LIGHT}>Light</option>
           <option value={AppTheme.DARK}>Dark</option>
         </select>
+      </div>
+      <div className="mt-3 flex items-center justify-between">
+        <span className="text-[12px] text-stone-500">Preferences</span>
+        <PersistStatus meta={settingsMeta} what="Preferences" />
       </div>
     </div>
   );

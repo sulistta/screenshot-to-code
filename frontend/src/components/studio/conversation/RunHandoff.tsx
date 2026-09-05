@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { restoreDraft } from "@/lib/projectApi";
 import { useStudioStore } from "@/store/studio-store";
@@ -7,6 +7,12 @@ export function RunHandoff({ projectId }: { projectId: string }) {
   const { lastOutcome, iterations, bumpPreview } = useStudioStore();
   const [recovering, setRecovering] = useState(false);
   const [recovered, setRecovered] = useState(false);
+  const runId = lastOutcome?.runId ?? null;
+  // Recovery results belong to a single run: a new outcome resets the flag.
+  useEffect(() => {
+    setRecovered(false);
+    setRecovering(false);
+  }, [runId]);
   if (!lastOutcome) return null;
 
   const recoverDraft = async () => {

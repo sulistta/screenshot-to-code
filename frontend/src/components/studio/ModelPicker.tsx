@@ -25,13 +25,24 @@ export default function ModelPicker({
 }: ModelPickerProps) {
   const [open, setOpen] = useState(false);
   const [entries, setEntries] = useState<ModelOption[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
+  // Reload whenever the provider configuration changes so new, edited, or
+  // removed providers are reflected immediately in every selector.
+  const providerFingerprint = JSON.stringify({
+    custom: settings?.customProviders ?? [],
+    active: settings?.activeCustomProviderId ?? null,
+  });
   useEffect(() => {
+    let cancelled = false;
     native<ModelOption[]>("list_models")
-      .then(setEntries)
-      .catch(() => undefined);
-  }, []);
+      .then((models) => { if (!cancelled) { setEntries(models); setLoadError(null); } })
+      .catch((error: unknown) => {
+        if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error));
+      });
+    return () => { cancelled = true; };
+  }, [providerFingerprint]);
 
   const options = buildModelOptions(entries, settings);
 
@@ -69,6 +80,11 @@ export default function ModelPicker({
         <div className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
           {label} model
         </div>
+        {loadError && (
+          <p role="alert" className="px-2 py-1.5 text-[11px] text-red-600">
+            Could not load models: {loadError}
+          </p>
+        )}
         {[...groups.entries()].map(([group, groupOptions]) => (
           <div key={group} className="mb-1 last:mb-0">
             {group !== "Default" && (

@@ -15,6 +15,7 @@ initializePreferences().then(() => root.render(
       <HashRouter><Routes>
         <Route path="/" element={<StudioPage />} />
         <Route path="/projects/:projectId" element={<StudioPage />} />
+        <Route path="*" element={<StudioPage />} />
       </Routes></HashRouter>
     </QueryClientProvider>
     <Toaster toastOptions={{ className: "dark:bg-zinc-950 dark:text-white" }} />

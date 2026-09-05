@@ -11,7 +11,7 @@ import {
   CustomProviderModel,
   CustomProviderProtocol,
 } from "../../types";
-import { createCustomProvider, testCustomProviderConnection } from "../../lib/providers";
+import { createCustomProvider, testCustomProviderConnection, recordProviderTest } from "../../lib/providers";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -28,7 +28,8 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   /** null opens the dialog in "add provider" mode. */
   provider: CustomProvider | null;
-  onSave: (provider: CustomProvider) => void;
+  /** Resolves when the configuration is confirmed saved; the dialog stays open on failure. */
+  onSave: (provider: CustomProvider) => Promise<unknown> | void;
 }
 
 interface Draft {
@@ -78,12 +79,18 @@ function ProviderDialog({ open, onOpenChange, provider, onSave }: Props) {
     provider ? draftFromProvider(provider) : blankDraft([])
   );
   const [test, setTest] = useState<TestResult>({ status: "idle", discovered: [] });
+  const [testBaseUrl, setTestBaseUrl] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [showHeaders, setShowHeaders] = useState(false);
 
   useEffect(() => {
     if (open) {
       setDraft(provider ? draftFromProvider(provider) : blankDraft([]));
       setTest({ status: "idle", discovered: [] });
+      setTestBaseUrl("");
+      setSaving(false);
+      setSaveError(null);
     }
   }, [open, provider]);
 
@@ -125,9 +132,12 @@ function ProviderDialog({ open, onOpenChange, provider, onSave }: Props) {
   }, [draft.headers]);
 
   const handleSave = () => {
-    if (!isValid) return;
-    onSave({
-      id: provider?.id ?? `provider-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    if (!isValid || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    const id = provider?.id ?? `provider-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const record = {
+      id,
       name: trimmedName,
       baseUrl: trimmedBaseUrl,
       apiKey: draft.apiKey.trim() ? draft.apiKey.trim() : null,
@@ -138,13 +148,25 @@ function ProviderDialog({ open, onOpenChange, provider, onSave }: Props) {
       })),
       headers: headerRecord,
       enabled: provider?.enabled ?? true,
-    });
-    onOpenChange(false);
+    };
+    Promise.resolve()
+      .then(() => onSave(record))
+      .then(() => {
+        if (test.status === "ok" || test.status === "error") {
+          if (testBaseUrl === trimmedBaseUrl) recordProviderTest(id, test.status === "ok");
+        }
+        onOpenChange(false);
+      })
+      .catch((error: unknown) => {
+        setSaveError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => setSaving(false));
   };
 
   const runTest = async () => {
     if (!/^https?:\/\//.test(trimmedBaseUrl)) return;
     setTest({ status: "testing", discovered: [] });
+    setTestBaseUrl(trimmedBaseUrl);
     try {
       const result = await testCustomProviderConnection({
         baseUrl: trimmedBaseUrl,
@@ -478,13 +500,14 @@ function ProviderDialog({ open, onOpenChange, provider, onSave }: Props) {
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={!isValid}>
-            Save provider
+          <Button onClick={handleSave} disabled={!isValid || saving}>
+            {saving ? "Saving…" : "Save provider"}
           </Button>
         </DialogFooter>
+        {saveError && <p role="alert" className="text-xs text-red-500">Could not save the provider: {saveError}</p>}
       </DialogContent>
     </Dialog>
   );

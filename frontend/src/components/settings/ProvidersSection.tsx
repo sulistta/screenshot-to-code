@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { LuPencil, LuPlus, LuTrash2 } from "react-icons/lu";
 import { CustomProvider, Settings } from "../../types";
+import { readProviderTest } from "../../lib/providers";
+import { writePreference } from "@/lib/preferences";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -44,22 +46,23 @@ function ProvidersSection({ settings, setSettings }: Props) {
   );
 
   const upsertProvider = (provider: CustomProvider) => {
-    setSettings((prev) => {
-      const existing = prev.customProviders ?? [];
-      const exists = existing.some((p) => p.id === provider.id);
-      const customProviders = exists
-        ? existing.map((p) => (p.id === provider.id ? provider : p))
-        : [...existing, provider];
-      return {
-        ...prev,
-        customProviders,
-        // A freshly added provider becomes the one in use; edits keep the
-        // current selection.
-        activeCustomProviderId: exists
-          ? prev.activeCustomProviderId
-          : provider.id,
-      };
-    });
+    const existing = settings.customProviders ?? [];
+    const exists = existing.some((p) => p.id === provider.id);
+    const customProviders = exists
+      ? existing.map((p) => (p.id === provider.id ? provider : p))
+      : [...existing, provider];
+    const next: Settings = {
+      ...settings,
+      customProviders,
+      // A freshly added provider becomes the one in use; edits keep the
+      // current selection.
+      activeCustomProviderId: exists
+        ? settings.activeCustomProviderId
+        : provider.id,
+    };
+    setSettings(next);
+    // The dialog waits for this confirmation before closing.
+    return writePreference("setting", next);
   };
 
   const handleDelete = () => {
@@ -135,7 +138,8 @@ function ProvidersSection({ settings, setSettings }: Props) {
           ))}
         </div>
         <p className="px-4 py-3 text-xs text-gray-500 dark:text-zinc-400">
-          Keys are saved in your operating system’s credential store.
+          Keys are saved in your operating system’s credential store. A saved key is not verified —
+          run a generation or test a custom provider below to verify connectivity.
         </p>
       </div>
 
@@ -169,6 +173,7 @@ function ProvidersSection({ settings, setSettings }: Props) {
                 const isActive =
                   settings.activeCustomProviderId === provider.id &&
                   provider.enabled;
+                const lastTest = readProviderTest(provider.id);
                 return (
                   <div
                     key={provider.id}
@@ -185,6 +190,14 @@ function ProvidersSection({ settings, setSettings }: Props) {
                         {!provider.enabled && (
                           <span className="rounded-full border px-1.5 py-0.5 text-[10px] text-muted-foreground">
                             Disabled
+                          </span>
+                        )}
+                        {provider.enabled && !isActive && (
+                          <span
+                            className={`rounded-full px-1.5 py-0.5 text-[10px] ${lastTest?.ok ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : "bg-gray-500/15 text-gray-600 dark:text-zinc-400"}`}
+                            title={lastTest ? `Last connection test: ${lastTest.ok ? "ok" : "failed"} (${new Date(lastTest.at).toLocaleString()})` : "Saved, not tested yet"}
+                          >
+                            {lastTest ? (lastTest.ok ? "Tested OK" : "Test failed") : "Configured"}
                           </span>
                         )}
                       </div>

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStudioStore } from "@/store/studio-store";
 import type { StudioActivityItem } from "@/store/studio-store";
-import { useProjectEvents } from "@/hooks/useProjectEvents";
 import { cancelRun, startRun } from "@/lib/studioApi";
 import type { Settings } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -20,6 +19,8 @@ import RunHandoff from "./RunHandoff";
 import TeamPanel from "./TeamPanel";
 import QuestionCard from "./QuestionCard";
 import { modelDisplayName } from "@/components/studio/modelOptions";
+import { useImageAttachments } from "@/hooks/useImageAttachments";
+import { clearPendingPrompt, loadPendingPrompt } from "@/lib/pendingPrompt";
 
 function phaseFromActivity(activity: StudioActivityItem[]): string | null {
   for (let i = activity.length - 1; i >= 0; i -= 1) {
@@ -49,9 +50,13 @@ const RUN_STATUS_LABEL: Record<string, string> = {
 export function ConversationColumn({
   projectId,
   settings,
+  send,
+  connected,
 }: {
   projectId: string;
   settings: Settings;
+  send: (payload: Record<string, unknown>) => Promise<void>;
+  connected: boolean;
 }) {
   const {
     transcript,
@@ -61,8 +66,17 @@ export function ConversationColumn({
     bumpPreview,
     setError,
   } = useStudioStore();
-  const { send, connected } = useProjectEvents(projectId, handleEvent);
-  const [draft, setDraft] = useState(() => sessionStorage.getItem(`conversation-draft:${projectId}`) ?? "");
+  const [draft, setDraft] = useState(() => {
+    const session = sessionStorage.getItem(`conversation-draft:${projectId}`) ?? "";
+    if (session.trim()) return session;
+    // A creation request that could not start keeps the brief recoverable here.
+    const pending = loadPendingPrompt(projectId);
+    if (pending && pending.text.trim()) {
+      clearPendingPrompt(projectId);
+      return pending.text;
+    }
+    return session;
+  });
   useEffect(() => { sessionStorage.setItem(`conversation-draft:${projectId}`, draft); }, [projectId, draft]);
   useEffect(() => {
     const target = (event: Event) => {
@@ -73,7 +87,7 @@ export function ConversationColumn({
     window.addEventListener("studio:target", target);
     return () => window.removeEventListener("studio:target", target);
   }, [projectId]);
-  const [images, setImages] = useState<string[]>([]);
+  const { images, attachError, addFiles, removeAt, clear } = useImageAttachments(`attachments:${projectId}`);
   const [submitting, setSubmitting] = useState(false);
   const submitInFlight = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -110,7 +124,7 @@ export function ConversationColumn({
   );
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    scrollRef.current?.scrollTo?.({ top: scrollRef.current.scrollHeight });
   }, [transcript.length, activity.length, runStatus]);
 
   const submit = async () => {
@@ -123,7 +137,7 @@ export function ConversationColumn({
       if (useStudioStore.getState().activeProjectId !== projectId) return;
       handleEvent({ type: "user_message", projectId, runId, text, images });
       setDraft("");
-      setImages([]);
+      clear();
     } catch (error) {
       if (useStudioStore.getState().activeProjectId === projectId) {
         setError(error instanceof Error ? error.message : String(error));
@@ -132,23 +146,6 @@ export function ConversationColumn({
       submitInFlight.current = false;
       setSubmitting(false);
     }
-  };
-
-  const attachFiles = (files: FileList | File[] | null) => {
-    if (!files) return;
-    Array.from(files)
-      .filter((file) => file.type.startsWith("image/"))
-      .slice(0, 5)
-      .forEach((file) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const dataUrl = String(reader.result);
-          setImages((prev) =>
-            prev.includes(dataUrl) ? prev : [...prev, dataUrl].slice(0, 5),
-          );
-        };
-        reader.readAsDataURL(file);
-      });
   };
 
   const working = runStatus === "running" || runStatus === "waiting_for_user";
@@ -259,9 +256,7 @@ export function ConversationColumn({
                     <button
                       aria-label={`Remove reference ${imageIndex + 1}`}
                       className="absolute -right-1.5 -top-1.5 text-stone-400 hover:text-red-600"
-                      onClick={() =>
-                        setImages((prev) => prev.filter((_, i) => i !== imageIndex))
-                      }
+                      onClick={() => removeAt(imageIndex)}
                     >
                       <IoCloseCircle className="h-4 w-4" />
                     </button>
@@ -269,6 +264,7 @@ export function ConversationColumn({
                 ))}
               </div>
             )}
+            {attachError && <p role="alert" className="text-[12px] text-red-600">{attachError}</p>}
             {activity.map((item) => (
               <ActivityItem key={item.id} item={item} />
             ))}
@@ -294,7 +290,7 @@ export function ConversationColumn({
               const files = Array.from(event.clipboardData.files);
               if (files.length > 0) {
                 event.preventDefault();
-                attachFiles(files);
+                addFiles(files);
               }
             }}
             placeholder={
@@ -308,7 +304,7 @@ export function ConversationColumn({
           <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5">
             <div className="flex items-center gap-1">
               <button
-                className="w-7 h-7 grid place-items-center rounded-lg bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 text-[15px]"
+                className="w-7 h-7 grid place-items-center rounded-lg bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 text-[15px] disabled:opacity-40"
                 title="Attach reference images"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={working || submitting}
@@ -330,7 +326,7 @@ export function ConversationColumn({
                 multiple
                 className="hidden"
                 onChange={(event) => {
-                  if (event.target.files) attachFiles(Array.from(event.target.files));
+                  if (event.target.files) addFiles(Array.from(event.target.files));
                   event.target.value = "";
                 }}
               />
