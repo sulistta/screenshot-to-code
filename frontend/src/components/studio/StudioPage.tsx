@@ -1,3 +1,5 @@
+import { native } from "@/lib/native";
+import type { StudioProject } from "@/types/studio";
 import StudioWorkbench from "./StudioWorkbench";
 import ProjectLibrary from "./ProjectLibrary";
 import ConversationColumn from "./conversation/ConversationColumn";
@@ -132,6 +134,11 @@ export default function StudioPage() {
           </Button>
         </div>
         <div className="px-3 pb-3">
+          <button className="mb-2 text-xs text-muted-foreground" onClick={async () => {
+            try { const project = await native<StudioProject | null>("import_project_folder");
+              if (project) { setProjects(await listProjects()); navigate(`/projects/${project.id}`); }
+            } catch (error) { setError(error instanceof Error ? error.message : String(error)); }
+          }}>Import project folder…</button>
           <div className="flex gap-1.5">
             <Input
               value={newProjectName}
@@ -158,14 +165,7 @@ export default function StudioPage() {
           <ProjectLibrary search={projectSearch} onSelect={() => setMobileView("preview")} />
         </ScrollArea>
         <Separator />
-        <div className="px-4 py-3">
-          <a
-            href="/evals"
-            className="text-xs text-muted-foreground hover:text-foreground"
-          >
-            Model evals →
-          </a>
-        </div>
+
       </aside>
 
       <section className="studio-conversation">

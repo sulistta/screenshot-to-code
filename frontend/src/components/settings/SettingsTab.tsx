@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { BsCheckCircleFill, BsExclamationTriangleFill } from "react-icons/bs";
 import { AppTheme, Settings } from "../../types";
 import { Input } from "../ui/input";
-import { HTTP_BACKEND_URL, IS_RUNNING_ON_CLOUD } from "../../config";
+import { native } from "@/lib/native";
 import ProvidersSection from "./ProvidersSection";
 
 interface Props {
@@ -29,8 +29,7 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) { 
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${HTTP_BACKEND_URL}/api/capabilities`)
-      .then((response) => (response.ok ? response.json() : null))
+    native<{ screenshot_preview: boolean }>("capabilities")
       .then((data) => {
         if (!cancelled && data && typeof data.screenshot_preview === "boolean") {
           setScreenshotPreviewAvailable(data.screenshot_preview);
@@ -222,13 +221,7 @@ function IntegrationsSection({
                   Screenshot preview is unavailable
                 </p>
                 <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-                  Headless Chromium isn't installed on the backend, so the
-                  agent can't render and visually verify its own output.
-                  Install it with{" "}
-                  <code className="rounded bg-amber-100 px-1 py-0.5 font-mono dark:bg-amber-900/40">
-                    playwright install chromium
-                  </code>{" "}
-                  and restart the backend.
+                  Automatic visual verification is not available in this desktop build. Use the project preview to review the result.
                 </p>
               </div>
             </div>
@@ -247,14 +240,14 @@ function IntegrationsSection({
             </div>
           ) : (
             <p className="text-xs text-gray-500 dark:text-zinc-400">
-              Checking backend capabilities…
+              Checking available tools…
             </p>
           )}
         </div>
       </div>
 
       {/* Replicate (image generation/editing backend) */}
-      {!IS_RUNNING_ON_CLOUD && (
+      {(
         <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
           <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
             <h2 className="text-sm font-medium text-gray-900 dark:text-white">
@@ -263,8 +256,7 @@ function IntegrationsSection({
           </div>
           <div className="p-4">
             <p className="text-xs text-gray-500 dark:text-zinc-400">
-              Used for image generation and editing. Only stored in your
-              browser; overrides your .env config.
+              Used for image generation. The key is saved in your operating system’s credential store.
             </p>
             <Input
               id="replicate-api-key"

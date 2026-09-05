@@ -10,9 +10,6 @@ export const DEFAULT_SETTINGS: Settings = {
   isImageGenerationEnabled: true,
   editorTheme: EditorTheme.COBALT,
   generatedCodeConfig: Stack.HTML_TAILWIND,
-  selectedDesignSystemId: null,
-  openAiBaseURL: null,
-  openAiCompatibleModel: null,
   customProviders: [],
   activeCustomProviderId: null,
 };

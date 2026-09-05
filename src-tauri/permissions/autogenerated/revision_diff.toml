@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-revision-diff"
+description = "Enables the revision_diff command without any pre-configured scope."
+commands.allow = ["revision_diff"]
+
+[[permission]]
+identifier = "deny-revision-diff"
+description = "Denies the revision_diff command without any pre-configured scope."
+commands.deny = ["revision_diff"]

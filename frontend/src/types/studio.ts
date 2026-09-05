@@ -1,8 +1,4 @@
-/** Studio (durable project) protocol types.
- *
- * The studio flow is a separate surface from the variant flow: one project
- * socket streams run events, and runs persist to the backend.
- */
+/** Durable project types shared with Rust commands and IPC channels. */
 
 export interface StudioProject {
   favorite?: boolean;

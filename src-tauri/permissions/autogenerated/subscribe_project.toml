@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-subscribe-project"
+description = "Enables the subscribe_project command without any pre-configured scope."
+commands.allow = ["subscribe_project"]
+
+[[permission]]
+identifier = "deny-subscribe-project"
+description = "Denies the subscribe_project command without any pre-configured scope."
+commands.deny = ["subscribe_project"]

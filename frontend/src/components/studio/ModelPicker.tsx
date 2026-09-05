@@ -1,3 +1,4 @@
+import { native } from "@/lib/native";
 import { useEffect, useRef, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { IoChevronDown, IoCheckmarkSharp } from "react-icons/io5";
@@ -27,9 +28,8 @@ export default function ModelPicker({
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    fetch("/api/models")
-      .then((response) => (response.ok ? response.json() : { models: [] }))
-      .then((data) => setEntries(data.models ?? []))
+    native<ModelOption[]>("list_models")
+      .then(setEntries)
       .catch(() => undefined);
   }, []);
 

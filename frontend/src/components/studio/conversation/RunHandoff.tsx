@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { projectRequest } from "@/lib/projectApi";
+import { restoreDraft } from "@/lib/projectApi";
 import { useStudioStore } from "@/store/studio-store";
 
 export function RunHandoff({ projectId }: { projectId: string }) {
@@ -13,7 +13,7 @@ export function RunHandoff({ projectId }: { projectId: string }) {
     if (!lastOutcome.runId || recovering) return;
     setRecovering(true);
     try {
-      await projectRequest(projectId, `drafts/${lastOutcome.runId}/restore`, {});
+      await restoreDraft(projectId, lastOutcome.runId);
       useStudioStore.getState().setError(null);
       setRecovered(true);
       bumpPreview();

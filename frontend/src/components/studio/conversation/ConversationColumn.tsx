@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStudioStore } from "@/store/studio-store";
 import type { StudioActivityItem } from "@/store/studio-store";
-import { useProjectSocket } from "@/hooks/useProjectSocket";
+import { useProjectEvents } from "@/hooks/useProjectEvents";
 import { cancelRun, startRun } from "@/lib/studioApi";
 import type { Settings } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -61,7 +61,7 @@ export function ConversationColumn({
     bumpPreview,
     setError,
   } = useStudioStore();
-  const { send, connected } = useProjectSocket(projectId, handleEvent);
+  const { send, connected } = useProjectEvents(projectId, handleEvent);
   const [draft, setDraft] = useState(() => sessionStorage.getItem(`conversation-draft:${projectId}`) ?? "");
   useEffect(() => { sessionStorage.setItem(`conversation-draft:${projectId}`, draft); }, [projectId, draft]);
   useEffect(() => {

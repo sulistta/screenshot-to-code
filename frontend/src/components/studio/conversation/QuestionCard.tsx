@@ -3,15 +3,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useStudioStore } from "@/store/studio-store";
 
-export function QuestionCard({ send }: { send: (payload: Record<string, unknown>) => void }) {
+export function QuestionCard({ send }: { send: (payload: Record<string, unknown>) => Promise<void> }) {
   const { activeQuestion, handleEvent, setError } = useStudioStore();
   const [answer, setAnswer] = useState("");
   if (!activeQuestion) return null;
 
-  const submit = (value: string) => {
+  const submit = async (value: string) => {
     if (!value.trim()) return;
     try {
-      send({
+      await send({
         type: "answer",
         answer: value,
         questionId: activeQuestion.questionId,

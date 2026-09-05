@@ -2,8 +2,8 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { useStudioStore } from "@/store/studio-store";
-import { appUrl, getServicesStatus, iterationUrl, listIterations, startServices, stopServices, workspaceUrl } from "@/lib/studioApi";
-import { FileDifference, ProjectFiles, projectExportUrl, projectRequest } from "@/lib/projectApi";
+import { getServicesStatus, openPreview, listIterations, startServices, stopServices, workspaceUrl } from "@/lib/studioApi";
+import { FileDifference, getFiles, editFile, revisionDiff, restoreRevision, exportProject } from "@/lib/projectApi";
 import ProjectTools from "./ProjectTools";
 const SourceEditor = lazy(() => import("./SourceEditor"));
 
@@ -29,7 +29,7 @@ export default function StudioWorkbench({ projectId }: { projectId: string }) {
   const bumpPreview = useStudioStore((state) => state.bumpPreview);
   const queryClient = useQueryClient();
   const files = useQuery({ queryKey: ["files", projectId, nonce],
-    queryFn: () => projectRequest<ProjectFiles>(projectId, "files") });
+    queryFn: () => getFiles(projectId) });
   const versions = useQuery({ queryKey: ["versions", projectId, nonce],
     queryFn: () => listIterations(projectId) });
   // Full-stack projects run through the supervisor and are previewed via
@@ -40,7 +40,7 @@ export default function StudioWorkbench({ projectId }: { projectId: string }) {
     queryFn: () => getServicesStatus(projectId),
     enabled: isAppProject,
     refetchInterval: (query) =>
-      query.state.data?.state === "installing" ? 1500 : false,
+      ["installing", "running"].includes(query.state.data?.state ?? "") ? 1500 : false,
   });
   const appRunning = services.data?.state === "running";
   useEffect(() => {
@@ -56,7 +56,7 @@ export default function StudioWorkbench({ projectId }: { projectId: string }) {
     return () => window.removeEventListener("message", receive);
   }, [inspecting]);
   const images = transcript.flatMap((message) => message.images);
-  const locked = busy || runStatus === "running" || runStatus === "waiting_for_user";
+  const locked = busy || services.data?.state === "installing" || runStatus === "running" || runStatus === "waiting_for_user";
   const content = draft ?? files.data?.files[path] ?? "";
   useEffect(() => {
     const saved = sessionStorage.getItem(`source-draft:${projectId}:${path}`);
@@ -71,6 +71,7 @@ export default function StudioWorkbench({ projectId }: { projectId: string }) {
     try {
       await action();
       await queryClient.invalidateQueries({ queryKey: ["files", projectId] });
+      await queryClient.invalidateQueries({ queryKey: ["services", projectId] });
       bumpPreview();
     } catch (error) { setError(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
@@ -80,8 +81,8 @@ export default function StudioWorkbench({ projectId }: { projectId: string }) {
     sandbox="allow-scripts allow-forms allow-downloads"
     src={`${workspaceUrl(projectId)}?v=${nonce}&inspect=${inspecting}`} className="workbench-frame" />;
   const appPreview = <iframe ref={frame} title="App preview" key={`app:${nonce}`}
-    sandbox="allow-scripts allow-forms allow-downloads allow-same-origin"
-    src={`${appUrl(projectId)}?v=${nonce}`} className="workbench-frame" />;
+    sandbox="allow-scripts allow-forms allow-downloads"
+    src={`${services.data?.url}?v=${nonce}`} className="workbench-frame" />;
   const previewFrame = appRunning ? appPreview : staticPreview;
   return <div className="workbench">
     <ProjectTools projectId={projectId} />
@@ -91,7 +92,7 @@ export default function StudioWorkbench({ projectId }: { projectId: string }) {
           <button key={item} role="tab" aria-selected={view === item} onClick={() => setView(item)}>
             {item[0].toUpperCase() + item.slice(1)}</button>)}
       </div>
-      <a className="workbench-export" href={projectExportUrl(projectId)}>Export ZIP</a>
+      <button className="workbench-export" onClick={() => execute(() => exportProject(projectId))}>Export ZIP</button>
     </div>
     {(view === "preview" || view === "compare") && <div className="workbench-controls">
       <label>Viewport <select value={width} onChange={(event) => setWidth(event.target.value)}>
@@ -99,14 +100,14 @@ export default function StudioWorkbench({ projectId }: { projectId: string }) {
           <option key={size} value={size}>{size} px</option>)}
       </select></label>
       <button onClick={bumpPreview}>Refresh</button>
-      {isAppProject && (services.data?.state === "running" ?
+      {isAppProject && (["running", "installing", "crashed"].includes(services.data?.state ?? "") ?
         <button onClick={() => execute(() => stopServices(projectId))}>Stop app</button> :
         <Button size="sm" disabled={services.data?.state === "installing"} onClick={() => execute(() => startServices(projectId))}>
           {services.data?.state === "installing" ? "Starting…" : "Start app"}
         </Button>)}
       {hasWebPreview && <button aria-pressed={inspecting} onClick={() => { setInspecting(!inspecting); setSelection(null); }}>{inspecting ? "Exit selection" : "Select element"}</button>}
-      {appRunning && <a href={appUrl(projectId)} target="_blank" rel="noreferrer">Open app ↗</a>}
-      {hasWebPreview && !appRunning && <a href={workspaceUrl(projectId)} target="_blank" rel="noreferrer">Open preview ↗</a>}
+
+      {hasWebPreview && !appRunning && <button onClick={() => execute(() => openPreview(projectId))}>Open preview ↗</button>}
       {runStatus === "running" && <span role="status">Working · showing saved files</span>}
     </div>}
     {selection && <div className="workbench-controls"><code>{selection.selector}</code>
@@ -172,7 +173,7 @@ export default function StudioWorkbench({ projectId }: { projectId: string }) {
       <div className="code-document">
         <div className="workbench-controls"><span>{path}{draft !== null ? " · draft" : ""}</span>
           <Button size="sm" disabled={locked || draft === null || !files.data} onClick={() => execute(async () => {
-            await projectRequest(projectId, "files", { path, content, revision: files.data?.revision }, "PUT");
+            await editFile(projectId, path, content, files.data!.revision);
             sessionStorage.removeItem(`source-draft:${projectId}:${path}`); setDraft(null);
           })}>{busy ? "Saving…" : "Save version"}</Button>
         </div>
@@ -189,13 +190,13 @@ export default function StudioWorkbench({ projectId }: { projectId: string }) {
         <div><strong>{version.label}</strong><time>{new Date(version.created_at).toLocaleString()}</time>
           <p>{version.summary}</p></div>
         <div className="version-actions">
-          <a href={iterationUrl(projectId, version.id)} target="_blank" rel="noreferrer">Preview ↗</a>
+          <button onClick={() => execute(() => openPreview(projectId, version.id))}>Preview ↗</button>
           <button onClick={() => execute(async () => {
-            const result = await projectRequest<{ changes: FileDifference[] }>(projectId, `revisions/${version.id}/diff`);
+            const result = await revisionDiff(projectId, version.id);
             setDifference(result.changes);
           })}>Compare code</button>
           <Button size="sm" variant="outline" disabled={locked || !files.data} onClick={() => execute(() =>
-            projectRequest(projectId, `revisions/${version.id}/restore`, { revision: files.data?.revision }))}>Restore</Button>
+            restoreRevision(projectId, version.id, files.data!.revision))}>Restore</Button>
         </div>
       </article>)}
       {difference.map((file) => <details key={file.path} open><summary>{file.kind} · {file.path}</summary><pre>{file.diff}</pre></details>)}

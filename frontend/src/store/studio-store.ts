@@ -231,7 +231,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
             .map((item) => item.text)
             .join("")
             .trim();
-          // Event replays (socket reconnect) re-deliver the terminal status;
+          // Event replays (channel resubscription) re-deliver the terminal status;
           // only append the reply when it is not already the last message.
           const alreadyAppended =
             state.transcript.some((message) =>

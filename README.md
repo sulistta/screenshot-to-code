@@ -1,149 +1,101 @@
-# screenshot-to-code
+# Screenshot to Code — Desktop Studio
 
-Convert screenshots, mockups, Figma designs, and screen recordings into clean, functional code using AI. The easiest way to try this is using <a href="https://screenshottocode.com/?utm_source=github&utm_medium=readme&utm_campaign=oss_readme&utm_content=top_cta" target="_blank" rel="noopener noreferrer">the official, hosted product at screenshottocode.com →</a>
+A Tauri v2 desktop application for building durable projects from screenshots
+and conversation. React renders the interface in the operating system WebView;
+Rust owns projects, provider requests, agent tools, previews and persistence.
+The application does not start a Python backend or an HTTP control server.
 
+## Develop
 
-https://github.com/user-attachments/assets/ec08a5e6-9606-41c5-b03a-1bf47dfeba75
+Install Node.js 22+, pnpm 10, Rust stable and the
+[Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/).
+On Linux this includes WebKitGTK 4.1, GTK 3 and a Secret Service keychain.
 
-
-The local app is a **Studio**: durable projects with a conversation, an
-agent team (a coordinator that plans and delegates, plus specialists that
-write the code), versioned history, and live previews — from static pages to
-runnable full-stack apps.
-
-Supported generation stacks:
-
-- HTML + Tailwind
-- HTML + CSS
-- React + Tailwind
-- Vue + Tailwind
-- Bootstrap
-- Ionic + Tailwind
-
-Generated full-stack projects (detected from `package.json`/lockfiles) run
-through a service supervisor and, on Linux with Bubblewrap and a systemd user
-session, inside a sandboxed process group with a cleared environment and
-resource limits.
-
-Default AI models:
-
-- Gemini 3 Flash Preview and Gemini 3.1 Pro Preview - the best models
-- GPT-5.5 and GPT-5.4 Mini
-- Claude Opus 4.6, Claude Opus 4.8
-- z-image-turbo (using Replicate) for image generation
-
-See the [Examples](#-examples) section below for more demos.
-
-Screenshot to Code also supports taking a screen recording of a website in action and turning that into a functional prototype.
-
-![google in app quick 3](https://github.com/abi/screenshot-to-code/assets/23818/8758ffa4-9483-4b9b-bb66-abd6d1594c33)
-
-## 🛠 Getting Started
-
-Choose the path that fits what you want to do:
-
-- **Run locally:** best if you want to customize, self-host, or contribute.
-- **Use the hosted app:** the fastest way to try Screenshot to Code with no local setup. <a href="https://screenshottocode.com/?utm_source=github&utm_medium=readme&utm_campaign=oss_readme&utm_content=getting_started_cta" target="_blank" rel="noopener noreferrer">Open the hosted app →</a>
-
-Running locally requires API keys and a backend/frontend setup. The app has a React/Vite frontend and a FastAPI backend.
-
-### API keys
-
-You need **at least one** model provider key (OpenAI, Anthropic, or Gemini).
-**Gemini and Replicate are strongly recommended for the best quality of
-screenshot-to-code accuracy** — Gemini powers asset extraction (reusing the
-real logos/images from your screenshot) and Replicate powers image
-generation, background removal, and image editing. Adding all four keys gives
-the best results and lets you compare multiple models per generation.
-
-| Key | Required? | What it unlocks |
-|-----|-----------|-----------------|
-| `OPENAI_API_KEY` | One of these three | GPT code-gen variants (GPT-5.5, GPT-5.4 Mini) |
-| `ANTHROPIC_API_KEY` | One of these three | Claude code-gen variants (Opus 5, Opus 4.8, Fable 5, Sonnet 4.6) |
-| `GEMINI_API_KEY` | One of these three — **strongly recommended** | Gemini code-gen variants (3 Flash, 3.1 Pro); extracts real assets from the screenshot; required for video mode |
-| `REPLICATE_API_KEY` | **Strongly recommended** | Image editing, background removal, and Replicate-backed image generation — without it, `edit_images` and `remove_backgrounds` are unavailable |
-
-With more keys, the app automatically picks a stronger mix of models per
-variant; with a single key it uses that provider's models only.
-
-If you'd like to run the app with Ollama open-source models (not recommended due to poor-quality results), [follow this comment](https://github.com/abi/screenshot-to-code/issues/354#issuecomment-2435479853).
-
-Run the backend (I use Poetry for package management; run `pip install --upgrade poetry` if you don't have it):
-
-```bash
-cd backend
-echo "OPENAI_API_KEY=sk-your-key" > .env
-echo "ANTHROPIC_API_KEY=your-key" >> .env
-echo "GEMINI_API_KEY=your-key" >> .env
-echo "REPLICATE_API_KEY=r8_your-key" >> .env
-poetry install
-# Install the Chromium browser used by the screenshot preview tool.
-# On Linux, use `poetry run playwright install --with-deps chromium` to also
-# install the required system libraries (needs sudo/apt).
-poetry run playwright install chromium
-poetry env activate
-# run the printed command, e.g. source /path/to/venv/bin/activate
-poetry run uvicorn main:app --reload --port 7001
-```
-
-You can also set up OpenAI, Anthropic, and Gemini keys using the settings dialog in the frontend (click the gear icon after loading the app). Replicate must be configured in `backend/.env` as `REPLICATE_API_KEY`. The Settings dialog also shows whether **screenshot preview** is available on your backend.
-
-> **Screenshot preview** (optional) lets the agent render its own generated page in a headless browser and visually check its work. It's enabled automatically once Chromium is installed (the `playwright install chromium` step above, or automatically in the Docker image). If Chromium is missing, the app just skips the tool — the Settings dialog shows whether it's available.
-
-Run the frontend:
-
-```bash
-cd frontend
+```sh
 pnpm install
 pnpm dev
 ```
 
-Open http://localhost:5173 to use the app.
+`pnpm dev` starts Vite on `localhost:5173` and opens the native application.
+Opening the Vite URL in an ordinary browser does not provide desktop IPC.
 
-If you prefer to run the backend on a different port, update `VITE_WS_BACKEND_URL` in `frontend/.env.local`.
+Add provider credentials in Settings. OpenAI Responses, Anthropic Messages,
+Gemini and custom OpenAI-compatible Chat Completions/Responses endpoints are
+supported. Custom HTTP endpoints must be on loopback; remote endpoints use HTTPS.
+Keys and custom authorization headers are stored in the operating system
+keychain. Other preferences and project data are stored in SQLite under the
+platform's application data directory for `com.screenshottocode.studio`.
+A locked or unavailable keychain produces a visible error; secrets are never
+silently saved to plaintext.
 
-#### Sandbox (optional, Linux only)
+## Build and check
 
-Full-stack projects run inside a sandboxed process group when
-[Bubblewrap](https://github.com/containers/bubblewrap) (`bwrap`) and a
-systemd user session are available; the supervisor probes this at startup
-and falls back to running services directly with a cleared environment
-otherwise. Set `STUDIO_DISABLE_SANDBOX=1` to force the fallback.
-
-## Docker
-
-If you have Docker installed, run this from the root directory:
-
-```bash
-echo "OPENAI_API_KEY=sk-your-key" > .env
-docker-compose up -d --build
+```sh
+pnpm check
+pnpm test
+pnpm build
 ```
 
-The app will be up and running at http://localhost:5173. Note that you can't develop the application with this setup, as file changes won't trigger a rebuild.
+Build installers on their target operating system. Tauri puts them under
+`src-tauri/target/release/bundle/`. Signing and notarization require the
+platform's signing credentials; they are not embedded in this repository.
 
-## 🙋‍♂️ FAQs
+For a local executable without an installer:
 
-- **I'm running into an error when setting up the backend. How can I fix it?** [Try this](https://github.com/abi/screenshot-to-code/issues/3#issuecomment-1814777959). If that still doesn't work, open an issue.
-- **How do I get an OpenAI API key?** See https://github.com/abi/screenshot-to-code/blob/main/Troubleshooting.md
-- **How can I configure an OpenAI proxy?** If you're not able to access the OpenAI API directly, for example because of country restrictions, you can try a VPN or configure the OpenAI base URL to use a proxy. Set `OPENAI_BASE_URL` in `backend/.env` or directly in the UI in the settings dialog. Make sure the URL has `v1` in the path, for example: `https://xxx.xxxxx.xxx/v1`.
-- **How can I update the backend host that my frontend connects to?** Configure `VITE_HTTP_BACKEND_URL` and `VITE_WS_BACKEND_URL` in `frontend/.env.local`. For example, set `VITE_HTTP_BACKEND_URL=http://124.10.20.1:7001`.
-- **Seeing UTF-8 errors when running the backend?** On Windows, open the `.env` file with Notepad++, then go to Encoding and select UTF-8.
-- **How can I provide feedback?** For feedback, feature requests, and bug reports, open an issue or ping me on [Twitter](https://twitter.com/_abi_).
+```sh
+pnpm tauri build --debug --no-bundle
+```
 
-## 📚 Examples
+Linux native integration tests use `tauri-driver`, `WebKitWebDriver` and Xvfb:
 
-**NYTimes**
+```sh
+cargo install tauri-driver --locked
+pnpm tauri build --debug --no-bundle
+xvfb-run -a node scripts/native-smoke.mjs
+```
 
-| Original                                                                                                                                                        | Replica                                                                                                                                                         |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| <img width="1238" alt="Screenshot 2023-11-20 at 12 54 03 PM" src="https://github.com/user-attachments/assets/6b0ae86c-1b0f-4598-a578-c7b62205b3e2"> | <img width="1435" height="737" alt="Screenshot 2026-06-15 at 3 06 37 PM" src="https://github.com/user-attachments/assets/48f0ab94-5fdc-41e7-ad6e-b4ad7ef69ae1" /> |
+The smoke test uses a real Tauri WebView with an isolated data directory and a
+local simulated provider. It does not consume paid provider credentials.
 
+## Projects
 
-**Instagram**
+- Create, rename, favorite, archive, trash and duplicate projects.
+- Edit project files with optimistic revision checks. Every saved change and
+  completed generation creates a version; restoring adds a new version.
+- Import/export ZIP files using native dialogs, or import a project folder.
+- Folder import also converts the previous Studio's `project.json`,
+  `workspace/`, `sessions/main.json` and `iterations/*/files/` layout. It creates
+  a new project and leaves the source untouched. Browser-stored credentials
+  need to be entered in Settings again.
+- Save to Git creates local checkpoints inside the app data directory without
+  running repository hooks or publishing to a remote.
 
-https://github.com/user-attachments/assets/a335a105-f9cc-40e6-ac6b-64e5390bfc21
+Agents receive bounded file scopes and can work concurrently when scopes do
+not overlap. Runs stream progress through Tauri channels, support questions
+and cancellation, and retain recoverable drafts after failures. The team shares
+an estimated $3 model budget using the bundled pricing table and a 48-request
+limit. A provider request already in flight can exceed the estimate; custom
+unpriced models and Replicate are outside the dollar estimate.
 
-**Hacker News**
+Static previews use a dedicated protocol and sandboxed frames. Preview windows
+have no Tauri capabilities. The bundled application has a restrictive CSP and
+only its main window can invoke project commands. There is no general shell,
+filesystem or HTTP plugin permission exposed to the interface.
 
+Generated Node.js projects can install dependencies and start a `dev` or `start`
+script on an assigned loopback port. This requires Node.js/npm or pnpm on the
+machine. Install scripts are disabled. Linux uses Bubblewrap when the sandbox
+probe succeeds; other environments use an isolated HOME and cleared environment,
+which is not a filesystem sandbox. Start app executes the generated project's
+script with the current user's privileges when Bubblewrap is unavailable.
+Processes are stopped when their preview is stopped or the application exits.
 
-https://github.com/user-attachments/assets/205cb5c7-9c3c-438d-acd4-26dfe6e077e5
+Optional Chromium/Google Chrome enables the agent's static HTML screenshot tool.
+The runtime also discovers existing Playwright Chromium installations, without
+requiring Python or Playwright at runtime. Reference crops are generated in Rust;
+Replicate enables generated image assets. Automatic screenshots currently target
+static `index.html` projects, not managed application servers.
+
+Developer evaluation dashboards and hosted deployment modes are not part of the
+desktop interface. The previous Python source is replaced by Rust; existing
+ignored local data is not deleted by the source migration.

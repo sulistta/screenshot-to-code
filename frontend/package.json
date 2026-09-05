@@ -1,15 +1,12 @@
 {
-  "name": "screenshot-to-code",
+  "name": "studio-ui",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev-hosted": "vite --mode prod",
     "build": "tsc && vite build",
-    "build-hosted": "tsc && vite build --mode prod",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview",
     "test": "jest"
   },
   "dependencies": {
@@ -29,7 +26,7 @@
     "@radix-ui/react-separator": "^1.0.3",
     "@radix-ui/react-slot": "^1.0.2",
     "@tanstack/react-query": "^5.102.8",
-    "@types/react-syntax-highlighter": "^15.5.13",
+    "@tauri-apps/api": "^2.11.1",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
     "codemirror": "^6.0.1",
@@ -37,12 +34,9 @@
     "react-dom": "^18.2.0",
     "react-hot-toast": "^2.4.1",
     "react-icons": "^4.12.0",
-    "react-markdown": "^10.1.0",
     "react-router-dom": "^6.20.1",
-    "react-syntax-highlighter": "^16.1.0",
     "tailwind-merge": "^2.0.0",
     "tailwindcss-animate": "^1.0.7",
-    "vite-plugin-checker": "^0.9.3",
     "zustand": "^4.5.2"
   },
   "devDependencies": {
@@ -54,7 +48,6 @@
     "@typescript-eslint/parser": "^6.0.0",
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.4.16",
-    "dotenv": "^16.4.5",
     "eslint": "^8.45.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.3",
@@ -63,11 +56,10 @@
     "tailwindcss": "^3.3.5",
     "ts-jest": "^29.1.2",
     "typescript": "^5.0.2",
-    "vite": "^6.4.1",
-    "vite-plugin-html": "^3.2.0"
+    "vite": "^6.4.1"
   },
   "engines": {
-    "node": ">=14.18.0"
+    "node": ">=22"
   },
   "packageManager": "pnpm@10.32.1"
 }

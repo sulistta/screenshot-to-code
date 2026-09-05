@@ -34,9 +34,6 @@ export interface CustomProvider {
 
 export interface Settings {
   openAiApiKey: string | null;
-  openAiBaseURL: string | null;
-  // Kept for pre-migration clients; generation now reads customProviders.
-  openAiCompatibleModel: string | null;
   // User-registered OpenAI-compatible endpoints.
   customProviders: CustomProvider[];
   activeCustomProviderId: string | null;
@@ -44,15 +41,6 @@ export interface Settings {
   isImageGenerationEnabled: boolean;
   editorTheme: EditorTheme;
   generatedCodeConfig: Stack;
-  selectedDesignSystemId: string | null;
   anthropicApiKey: string | null;
   geminiApiKey: string | null;
-}
-
-export interface DesignSystem {
-  id: string;
-  name: string;
-  content: string;
-  createdAt: string;
-  updatedAt: string;
 }

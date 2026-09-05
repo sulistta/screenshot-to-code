@@ -24,3 +24,10 @@ frontend/.env.local
 
 # Walkthrough demo videos
 walkthrough/
+
+# Native build outputs and generated schemas
+src-tauri/target/
+src-tauri/gen/
+artifacts/
+# User data from the previous checkout is never deleted by the migration.
+backend/

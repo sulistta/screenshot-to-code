@@ -1,4 +1,3 @@
-// Keep in sync with backend (prompts/types.py)
 // Order here determines order in dropdown
 export enum Stack {
   HTML_TAILWIND = "html_tailwind",

@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { LuPencil, LuPlus, LuTrash2 } from "react-icons/lu";
 import { CustomProvider, Settings } from "../../types";
-import { IS_RUNNING_ON_CLOUD } from "../../config";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -136,12 +135,12 @@ function ProvidersSection({ settings, setSettings }: Props) {
           ))}
         </div>
         <p className="px-4 py-3 text-xs text-gray-500 dark:text-zinc-400">
-          Keys are only stored in this browser and override your .env config.
+          Keys are saved in your operating system’s credential store.
         </p>
       </div>
 
       {/* Custom providers */}
-      {!IS_RUNNING_ON_CLOUD && (
+      {(
         <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
           <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
             <h2 className="text-sm font-medium text-gray-900 dark:text-white">
@@ -230,8 +229,7 @@ function ProvidersSection({ settings, setSettings }: Props) {
             </div>
           )}
           <p className="px-4 py-3 text-xs text-gray-500 dark:text-zinc-400">
-            The provider in use generates every variant and replaces the
-            built-in keys.
+            The selected provider is used when you choose Best available.
           </p>
         </div>
       )}

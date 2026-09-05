@@ -1,0 +1,12 @@
+[[permission]]
+identifier = "studio"
+description = "Project operations exposed to the trusted studio interface."
+commands.allow = [
+  "list_projects", "create_project", "update_project", "delete_project",
+  "get_transcript", "list_iterations", "get_files", "edit_file",
+  "revision_diff", "restore_revision", "set_project_options", "duplicate_project",
+  "import_project", "import_project_folder", "export_project", "git_checkpoint", "restore_draft",
+  "subscribe_project", "unsubscribe_project", "start_run", "cancel_run", "answer_question",
+  "load_preferences", "save_preferences", "list_models", "test_provider",
+  "services_status", "start_services", "stop_services", "open_preview", "capabilities"
+]

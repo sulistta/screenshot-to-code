@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { listProjects, updateProject } from "@/lib/studioApi";
-import { ProjectOptions, projectRequest } from "@/lib/projectApi";
+import { ProjectOptions, setProjectOptions, duplicateProject } from "@/lib/projectApi";
 import { StudioProject } from "@/types/studio";
 import { useStudioStore } from "@/store/studio-store";
 
@@ -19,8 +19,9 @@ export default function ProjectLibrary({ search, onSelect }: { search: string; o
     finally { setBusy(false); }
   };
   const change = (id: string, patch: Partial<ProjectOptions>) => perform(async () => {
-    const options = await projectRequest<ProjectOptions>(id, "options");
-    await projectRequest(id, "options", { ...options, ...patch }, "PUT");
+    const project = projects.find((item) => item.id === id);
+    if (!project) throw new Error("Project not found");
+    await setProjectOptions(id, { favorite: !!project.favorite, archived: !!project.archived, trashed: !!project.trashed, ...patch });
     if (patch.trashed && id === activeProjectId) navigate("/");
   });
   const visible = projects.filter((project) => project.name.toLowerCase().includes(search.toLowerCase()) &&
@@ -50,7 +51,7 @@ export default function ProjectLibrary({ search, onSelect }: { search: string; o
             <button disabled={busy} onClick={() => change(project.id, { favorite: !project.favorite })}>{project.favorite ? "Unfavorite" : "Favorite"}</button>
             <button disabled={busy} onClick={() => change(project.id, { archived: !project.archived })}>{project.archived ? "Unarchive" : "Archive"}</button>
             <button disabled={busy} onClick={() => perform(async () => {
-              const copy = await projectRequest<{ id: string }>(project.id, "duplicate", {});
+              const copy = await duplicateProject(project.id);
               navigate(`/projects/${copy.id}`); onSelect();
             })}>Duplicate</button>
             <button disabled={busy} onClick={() => change(project.id, { trashed: true })}>Move to trash</button>

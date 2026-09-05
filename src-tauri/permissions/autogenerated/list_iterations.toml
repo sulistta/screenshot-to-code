@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-iterations"
+description = "Enables the list_iterations command without any pre-configured scope."
+commands.allow = ["list_iterations"]
+
+[[permission]]
+identifier = "deny-list-iterations"
+description = "Denies the list_iterations command without any pre-configured scope."
+commands.deny = ["list_iterations"]

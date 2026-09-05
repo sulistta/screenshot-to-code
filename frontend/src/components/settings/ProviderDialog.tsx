@@ -165,7 +165,7 @@ function ProviderDialog({ open, onOpenChange, provider, onSave }: Props) {
         error:
           error instanceof Error
             ? error.message
-            : "Could not reach the backend.",
+            : "Could not reach the provider.",
         discovered: [],
       });
     }
@@ -200,8 +200,8 @@ function ProviderDialog({ open, onOpenChange, provider, onSave }: Props) {
             {provider ? "Edit provider" : "Add provider"}
           </DialogTitle>
           <DialogDescription className="text-xs">
-            Any endpoint that speaks the OpenAI API. Credentials stay in this
-            browser and are sent to your local backend only.
+            Any endpoint that speaks the OpenAI API. Credentials are saved in your operating system’s credential store
+            and used by the native engine.
           </DialogDescription>
         </DialogHeader>
 

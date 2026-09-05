@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-project-options"
+description = "Enables the set_project_options command without any pre-configured scope."
+commands.allow = ["set_project_options"]
+
+[[permission]]
+identifier = "deny-set-project-options"
+description = "Denies the set_project_options command without any pre-configured scope."
+commands.deny = ["set_project_options"]
