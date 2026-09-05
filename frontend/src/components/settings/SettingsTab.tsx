@@ -1,15 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { BsCheckCircleFill, BsExclamationTriangleFill } from "react-icons/bs";
 import { AppTheme, Settings } from "../../types";
-import { capitalize } from "../../lib/utils";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "../ui/select";
 import { Input } from "../ui/input";
-import { Switch } from "../ui/switch";
 import { HTTP_BACKEND_URL, IS_RUNNING_ON_CLOUD } from "../../config";
 import ProvidersSection from "./ProvidersSection";
 
@@ -83,21 +75,18 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) { 
           {/* Mobile section switcher */}
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pb-6">
             <div className="mb-4 sm:hidden">
-              <Select
+              <select
+                aria-label="Settings section"
                 value={section}
-                onValueChange={(value) => setSection(value as SettingsSection)}
+                onChange={(event) => setSection(event.target.value as SettingsSection)}
+                className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
               >
-                <SelectTrigger className="w-full">
-                  {SECTIONS.find((entry) => entry.id === section)?.label}
-                </SelectTrigger>
-                <SelectContent>
-                  {SECTIONS.map((entry) => (
-                    <SelectItem key={entry.id} value={entry.id}>
-                      {entry.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                {SECTIONS.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.label}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="max-w-2xl">
@@ -151,20 +140,17 @@ function GeneralSection({ appTheme, setAppTheme }: Props) {
               System default, with optional light/dark override
             </p>
           </div>
-          <Select
+          <select
             name="app-theme"
+            aria-label="App theme"
             value={appTheme}
-            onValueChange={(value) => setAppTheme(value as AppTheme)}
+            onChange={(event) => setAppTheme(event.target.value as AppTheme)}
+            className="w-[140px] rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
           >
-            <SelectTrigger className="w-[140px]">
-              {capitalize(appTheme)}
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={AppTheme.SYSTEM}>System</SelectItem>
-              <SelectItem value={AppTheme.LIGHT}>Light</SelectItem>
-              <SelectItem value={AppTheme.DARK}>Dark</SelectItem>
-            </SelectContent>
-          </Select>
+            <option value={AppTheme.SYSTEM}>System</option>
+            <option value={AppTheme.LIGHT}>Light</option>
+            <option value={AppTheme.DARK}>Dark</option>
+          </select>
         </div>
       </div>
     </div>
@@ -192,15 +178,18 @@ function GenerationSection({
               More fun with it but if you want to save money, turn it off.
             </p>
           </div>
-          <Switch
+          <input
+            type="checkbox"
             id="image-generation"
+            aria-label="Image generation"
             checked={settings.isImageGenerationEnabled}
-            onCheckedChange={(checked) =>
+            onChange={(event) =>
               setSettings((s) => ({
                 ...s,
-                isImageGenerationEnabled: checked,
+                isImageGenerationEnabled: event.target.checked,
               }))
             }
+            className="h-4 w-4 accent-emerald-600"
           />
         </div>
       </div>

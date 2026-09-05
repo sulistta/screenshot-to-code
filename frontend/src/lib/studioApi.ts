@@ -127,6 +127,8 @@ export async function cancelRun(projectId: string): Promise<void> {
 export interface ServicesStatus {
   state: "installing" | "running" | "stopped" | "crashed";
   error?: string | null;
+  /** True when services run inside the native sandbox (bwrap + systemd). */
+  sandboxed?: boolean;
   services: Array<{
     name: string;
     port: number;

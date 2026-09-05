@@ -1,13 +1,17 @@
 """Service supervisor: install, start, watch, restart and stop runnable projects.
 
 One supervisor instance per Studio process manages per-project process
-groups. Processes run through the native sandbox when available; the
-supervisor tracks state (installing/running/stopped/crashed), streams
-recent logs, probes health endpoints and tears everything down on project
-stop, edit-lock conflicts or shutdown. Install runs without model secrets;
-run commands receive only the variables the manifest declares.
+groups. When the native sandbox (systemd cgroups + bubblewrap) is available,
+install and service commands run inside it — cleared environment, bounded
+filesystem, memory/CPU/task limits — and the status reports `sandboxed`;
+otherwise they run directly with a cleared environment. The supervisor
+tracks state (installing/running/stopped/crashed), streams recent logs,
+probes health endpoints and tears everything down on project stop, edit-lock
+conflicts or shutdown. Install runs without model secrets; run commands
+receive only the variables the manifest declares.
 """
 import asyncio
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,6 +20,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from projects.manifest import ProjectManifest, ServiceSpec, manifest_is_runnable
+from projects.native_sandbox import SandboxUnavailable, build_sandbox_command, outer_env, sandbox_available, _stop_unit
 from projects.store import ProjectStore
 
 MAX_LOG_LINES = 400
@@ -33,6 +38,8 @@ class ServiceProcess:
     port: int
     process: asyncio.subprocess.Process
     started_at: float
+    # systemd unit name when the service runs inside the sandbox.
+    unit: Optional[str] = None
     logs: List[str] = field(default_factory=_empty_logs)
     crashes: int = 0
 
@@ -53,10 +60,11 @@ class ProjectRuntime:
     error: Optional[str] = None
 
 
-def _runtime_status(runtime: ProjectRuntime) -> Dict[str, object]:
+def _runtime_status(runtime: ProjectRuntime, sandboxed: bool) -> Dict[str, object]:
     return {
         "state": runtime.state,
         "error": runtime.error,
+        "sandboxed": sandboxed,
         "services": [
             {
                 "name": process.spec.name,
@@ -74,6 +82,12 @@ class ServiceSupervisor:
 
     def __init__(self, store: ProjectStore, sandbox: Optional[Any] = None) -> None:
         self.store = store
+        # sandbox=None means "probe once"; an explicit value (e.g. False in
+        # tests or via STUDIO_DISABLE_SANDBOX) forces the fallback path.
+        if sandbox is None:
+            sandbox = (
+                not os.environ.get("STUDIO_DISABLE_SANDBOX") and sandbox_available()
+            )
         self.sandbox = sandbox
         self._runtimes: Dict[str, ProjectRuntime] = {}
         self._starting: set[str] = set()
@@ -82,8 +96,8 @@ class ServiceSupervisor:
     def status(self, project_id: str) -> Dict[str, object]:
         runtime = self._runtimes.get(project_id)
         if runtime is None:
-            return {"state": "stopped", "services": []}
-        return _runtime_status(runtime)
+            return {"state": "stopped", "services": [], "sandboxed": bool(self.sandbox)}
+        return _runtime_status(runtime, bool(self.sandbox))
 
     def is_running(self, project_id: str) -> bool:
         runtime = self._runtimes.get(project_id)
@@ -149,6 +163,47 @@ class ServiceSupervisor:
         return await self.start(project_id, manifest, env=env)
 
     # --- internals ---------------------------------------------------------------
+    async def _run_captured(
+        self, workspace_dir: Path, command: List[str], *, timeout: int
+    ) -> tuple[int, bytes]:
+        """Run an install command; sandboxed when available."""
+        if self.sandbox:
+            try:
+                unit, argv = build_sandbox_command(
+                    workspace_dir, command, network=True, writable=True,
+                    memory_max="2G", tasks_max=256, cpu_quota="200%",
+                    runtime_max_sec=timeout,
+                )
+            except SandboxUnavailable:
+                self.sandbox = False
+                return await self._run_captured(workspace_dir, command, timeout=timeout)
+            return await self._wait_process(argv, outer_env(), timeout, unit=unit)
+        env = {"PATH": os.environ.get("PATH", ""), "HOME": "/tmp"}
+        return await self._wait_process(command, env, timeout, cwd=workspace_dir)
+
+    async def _wait_process(
+        self,
+        command: List[str],
+        env: Dict[str, str],
+        timeout: int,
+        *,
+        cwd: Optional[Path] = None,
+        unit: Optional[str] = None,
+    ) -> tuple[int, bytes]:
+        process = await asyncio.create_subprocess_exec(
+            *command, cwd=str(cwd) if cwd else None, env=env,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+        )
+        try:
+            output, _ = await asyncio.wait_for(process.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            process.kill()
+            if unit:
+                await _stop_unit(unit)
+            raise RuntimeError(f"Command timed out after {timeout}s: {command[0]}")
+        return (process.returncode or 0), output
+
     async def _install(self, project_id: str, workspace_dir: Path) -> None:
         """Install dependencies once per start; no model secrets present."""
         commands: List[List[str]] = []
@@ -161,21 +216,10 @@ class ServiceSupervisor:
         if (workspace_dir / "requirements.txt").exists():
             commands.append(["pip", "install", "-r", "requirements.txt"])
         for command in commands:
-            process = await asyncio.create_subprocess_exec(
-                *command, cwd=str(workspace_dir),
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+            returncode, output = await self._run_captured(
+                workspace_dir, command, timeout=INSTALL_TIMEOUT
             )
-            try:
-                output, _ = await asyncio.wait_for(
-                    process.communicate(), timeout=INSTALL_TIMEOUT
-                )
-            except asyncio.TimeoutError:
-                process.kill()
-                raise RuntimeError(
-                    f"Installing dependencies timed out ({command[1]})"
-                )
-            if process.returncode != 0:
+            if returncode != 0:
                 raise RuntimeError(
                     f"Installing dependencies failed ({command[1]}): "
                     + output.decode(errors="replace")[-500:]
@@ -198,16 +242,38 @@ class ServiceSupervisor:
         command = [
             piece if piece != "{port}" else str(port) for piece in spec.command
         ]
-        process_env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/tmp"}
-        process_env.update(env)
-        process = await asyncio.create_subprocess_exec(
-            *command, cwd=str(workspace_dir), env=process_env,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-        )
+        # Services always receive their port as PORT, whatever the profile.
+        env = {**env, "PORT": str(port)}
+        unit: Optional[str] = None
+        if self.sandbox:
+            try:
+                unit, command = build_sandbox_command(
+                    workspace_dir, command, network=True, writable=True,
+                    env=env,
+                )
+            except SandboxUnavailable:
+                self.sandbox = False
+                unit = None
+                command = [
+                    piece if piece != "{port}" else str(port) for piece in spec.command
+                ]
+        if unit:
+            process = await asyncio.create_subprocess_exec(
+                *command, env=outer_env(),
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+            )
+        else:
+            process_env = {"PATH": os.environ.get("PATH", ""), "HOME": "/tmp"}
+            process_env.update(env)
+            process = await asyncio.create_subprocess_exec(
+                *command, cwd=str(workspace_dir), env=process_env,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+            )
         runtime = self._runtimes[project_id]
         service = ServiceProcess(spec=spec, port=port, process=process,
-                                 started_at=time.time())
+                                 started_at=time.time(), unit=unit)
         runtime.services[spec.name] = service
         asyncio.create_task(self._pump(service))
         asyncio.create_task(self._reap(project_id, process))
@@ -260,6 +326,10 @@ class ServiceSupervisor:
             return False
 
     async def _terminate(self, process: ServiceProcess) -> None:
+        if process.unit:
+            # The sandboxed process group is owned by systemd: stop the unit,
+            # then make sure the systemd-run client itself is gone.
+            await _stop_unit(process.unit)
         if process.process.returncode is None:
             process.process.terminate()
             try:

@@ -22,18 +22,6 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { Input } from "../ui/input";
-import { Label } from "../ui/label";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "../ui/collapsible";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "../ui/select";
 
 interface Props {
   open: boolean;
@@ -90,6 +78,7 @@ function ProviderDialog({ open, onOpenChange, provider, onSave }: Props) {
     provider ? draftFromProvider(provider) : blankDraft([])
   );
   const [test, setTest] = useState<TestResult>({ status: "idle", discovered: [] });
+  const [showHeaders, setShowHeaders] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -223,9 +212,9 @@ function ProviderDialog({ open, onOpenChange, provider, onSave }: Props) {
               Connection
             </p>
             <div>
-              <Label htmlFor="provider-name" className="text-xs">
+              <label htmlFor="provider-name" className="block text-xs">
                 Name
-              </Label>
+              </label>
               <Input
                 id="provider-name"
                 className="mt-1"
@@ -240,35 +229,28 @@ function ProviderDialog({ open, onOpenChange, provider, onSave }: Props) {
               )}
             </div>
             <div>
-              <Label className="text-xs">Protocol</Label>
-              <Select
+              <label className="block text-xs">Protocol</label>
+              <select
+                aria-label="Protocol"
                 value={draft.protocol}
-                onValueChange={(value) =>
+                onChange={(event) =>
                   setDraft((prev) => ({
                     ...prev,
-                    protocol: value as CustomProviderProtocol,
+                    protocol: event.target.value as CustomProviderProtocol,
                   }))
                 }
+                className="mt-1 w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
               >
-                <SelectTrigger className="mt-1 w-full">
-                  {draft.protocol === "responses"
-                    ? "Responses (/v1/responses)"
-                    : "Chat Completions (/v1/chat/completions)"}
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="chat_completions">
-                    Chat Completions (/v1/chat/completions)
-                  </SelectItem>
-                  <SelectItem value="responses">
-                    Responses (/v1/responses)
-                  </SelectItem>
-                </SelectContent>
-              </Select>
+                <option value="chat_completions">
+                  Chat Completions (/v1/chat/completions)
+                </option>
+                <option value="responses">Responses (/v1/responses)</option>
+              </select>
             </div>
             <div>
-              <Label htmlFor="provider-base-url" className="text-xs">
+              <label htmlFor="provider-base-url" className="block text-xs">
                 Base URL
-              </Label>
+              </label>
               <Input
                 id="provider-base-url"
                 className="mt-1"
@@ -283,12 +265,12 @@ function ProviderDialog({ open, onOpenChange, provider, onSave }: Props) {
               )}
             </div>
             <div>
-              <Label htmlFor="provider-api-key" className="text-xs">
+              <label htmlFor="provider-api-key" className="block text-xs">
                 API key{" "}
                 <span className="font-normal text-gray-400 dark:text-zinc-500">
                   (optional for local endpoints)
                 </span>
-              </Label>
+              </label>
               <Input
                 id="provider-api-key"
                 type="password"
@@ -382,11 +364,16 @@ function ProviderDialog({ open, onOpenChange, provider, onSave }: Props) {
           </div>
 
           {/* Advanced: headers */}
-          <Collapsible>
-            <CollapsibleTrigger className="text-xs font-semibold uppercase tracking-wide text-gray-400 hover:text-gray-600 dark:text-zinc-500 dark:hover:text-zinc-300">
-              Advanced · HTTP headers
-            </CollapsibleTrigger>
-            <CollapsibleContent className="space-y-2 pt-2">
+          <button
+            type="button"
+            aria-expanded={showHeaders}
+            className="text-xs font-semibold uppercase tracking-wide text-gray-400 hover:text-gray-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+            onClick={() => setShowHeaders((open) => !open)}
+          >
+            {showHeaders ? "▾" : "▸"} Advanced · HTTP headers
+          </button>
+          {showHeaders && (
+            <div className="space-y-2 pt-2">
               {draft.headers.map((header, index) => (
                 <div key={index} className="flex items-center gap-2">
                   <Input
@@ -448,8 +435,8 @@ function ProviderDialog({ open, onOpenChange, provider, onSave }: Props) {
                 <LuPlus className="mr-1 h-3.5 w-3.5" />
                 Add header
               </Button>
-            </CollapsibleContent>
-          </Collapsible>
+            </div>
+          )}
 
           {/* Test connection */}
           <div className="rounded-md border border-gray-200 p-3 dark:border-zinc-700">

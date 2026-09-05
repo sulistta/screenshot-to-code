@@ -4,16 +4,13 @@ import { CustomProvider, Settings } from "../../types";
 import { IS_RUNNING_ON_CLOUD } from "../../config";
 import { Button } from "../ui/button";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "../ui/alert-dialog";
-import { Badge } from "../ui/badge";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
 import { Input } from "../ui/input";
 import ProviderDialog from "./ProviderDialog";
 
@@ -184,12 +181,12 @@ function ProvidersSection({ settings, setSettings }: Props) {
                           {provider.name}
                         </p>
                         {isActive && (
-                          <Badge className="text-[10px]">In use</Badge>
+                          <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:text-emerald-400">In use</span>
                         )}
                         {!provider.enabled && (
-                          <Badge variant="outline" className="text-[10px]">
+                          <span className="rounded-full border px-1.5 py-0.5 text-[10px] text-muted-foreground">
                             Disabled
-                          </Badge>
+                          </span>
                         )}
                       </div>
                       <p className="truncate text-xs text-gray-500 dark:text-zinc-400">
@@ -246,32 +243,34 @@ function ProvidersSection({ settings, setSettings }: Props) {
         onSave={upsertProvider}
       />
 
-      <AlertDialog
+      <Dialog
         open={deletingProvider !== null}
         onOpenChange={(open) => !open && setDeletingProvider(null)}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
               Delete {deletingProvider?.name}?
-            </AlertDialogTitle>
-            <AlertDialogDescription>
+            </DialogTitle>
+            <DialogDescription>
               This removes the provider's configuration and saved API key.
               Built-in keys are used again until you add or select another
               provider.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeletingProvider(null)}>
+              Cancel
+            </Button>
+            <Button
               className="bg-red-600 hover:bg-red-700"
               onClick={handleDelete}
             >
               Delete provider
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

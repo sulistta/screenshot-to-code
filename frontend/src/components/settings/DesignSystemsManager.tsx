@@ -5,14 +5,6 @@ import { NEW_DESIGN_SYSTEM_CONTENT } from "../../lib/design-systems";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../ui/select";
 
 interface Props {
   designSystems: DesignSystem[];
@@ -161,32 +153,22 @@ function DesignSystemsManager({
   return (
     <div className="space-y-5">
       <div className="flex gap-2">
-        <Select
+        <select
+          data-testid="manage-design-system-select"
+          aria-label="Edit design system"
           value={editingId ?? ""}
-          onValueChange={setEditingId}
           disabled={designSystems.length === 0}
+          onChange={(event) => setEditingId(event.target.value)}
+          className="flex-1 rounded-md border border-input bg-transparent px-2 py-1.5 text-sm disabled:opacity-60"
         >
-          <SelectTrigger
-            className="flex-1"
-            data-testid="manage-design-system-select"
-          >
-            <SelectValue placeholder="No design systems yet" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {designSystems.map((designSystem) => (
-                <SelectItem key={designSystem.id} value={designSystem.id}>
-                  {designSystem.name}
-                  {selectedDesignSystemId === designSystem.id && (
-                    <span className="ml-2 text-xs text-violet-600 dark:text-violet-400">
-                      Default
-                    </span>
-                  )}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
+          {designSystems.length === 0 && <option value="">No design systems yet</option>}
+          {designSystems.map((designSystem) => (
+            <option key={designSystem.id} value={designSystem.id}>
+              {designSystem.name}
+              {selectedDesignSystemId === designSystem.id ? " (default)" : ""}
+            </option>
+          ))}
+        </select>
         <Button
           type="button"
           variant="outline"

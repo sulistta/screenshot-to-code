@@ -87,19 +87,24 @@ Full-stack execution groundwork:
 
 ## Remaining constraints
 
-- Generated full-stack apps do not yet run inside the native sandbox by
-  default; the supervisor currently spawns processes directly. Wiring
-  `NativeSandbox` into the supervisor's spawn path is the next reliability
-  step (env allow-list, tmpfs writes, cgroup limits).
+- Generated full-stack apps run inside the native sandbox when Linux +
+  Bubblewrap + a systemd user session are available (probed by executing a
+  trivial command through the whole chain): cleared environment rebuilt from
+  the manifest's declared variables only, read-only /usr plus the project
+  directory, tmpfs /tmp, memory/CPU/task limits via cgroups, and read-only
+  binds for the toolchain binary directories (nvm/pnpm layouts included).
+  Dev servers share the host network (they must bind a port and reach
+  registries). Without the sandbox the supervisor falls back to direct
+  execution with a cleared environment and reports `sandboxed: false`;
+  `STUDIO_DISABLE_SANDBOX` forces the fallback.
 - PostgreSQL profile, Alembic migrations for the studio database, and
   migration of legacy document tables into normalized tables are pending.
 - Team history is preserved per run but the UI team panel currently shows
   the latest run's team; run-scoped team fetch from
   `GET /api/v1/projects/{id}/runs/{run_id}/agents` is available for the
   history view.
-- Verification loops (build, health, browser errors, journeys) are not yet
-  part of generation; the supervisor's health probe is the first building
-  block.
+- Verification loops (build, browser errors, journeys) are not yet part of
+  generation; the supervisor's health probe is the first building block.
 - Frontend still needs: onboarding checks, resizable panels, run-scoped team
   history view, and the remaining responsive/a11y passes.
 

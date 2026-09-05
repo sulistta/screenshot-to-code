@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "../ui/button";
-import { Progress } from "../ui/progress";
 import { HTTP_BACKEND_URL } from "../../config";
 import { BsCheckLg, BsChevronDown, BsChevronRight } from "react-icons/bs";
 import InputFileSelector from "./InputFileSelector";
@@ -468,7 +467,7 @@ function RunEvalsPage() {
                     {completedTasks} / {totalTasks || "?"} tasks
                   </span>
                 </div>
-                <Progress value={progressPercent} className="h-2 mb-2" />
+                <div className="mb-2 h-2 w-full overflow-hidden rounded-full bg-secondary"><div className="h-full rounded-full bg-emerald-600 transition-all" style={{ width: `${Math.min(100, Math.max(0, progressPercent))}%` }} /></div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-gray-600">
                   <span>
                     Current model:{" "}
