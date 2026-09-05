@@ -79,13 +79,6 @@ export function iterationUrl(
   return `${HTTP_BASE}/api/projects/${projectId}/iterations/${iterationId}/files/index.html`;
 }
 
-export async function getAvailableModels(): Promise<string[]> {
-  const response = await fetch(`${HTTP_BASE}/api/models`);
-  if (!response.ok) return [];
-  const data = await response.json();
-  return data.models;
-}
-
 export async function getTranscript(
   projectId: string,
 ): Promise<StudioTranscriptMessage[]> {

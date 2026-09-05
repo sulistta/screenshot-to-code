@@ -164,7 +164,7 @@ class ProjectStore:
 
         Legacy workspace/ directories are read unchanged until the first save.
         Previous generations stay available, including paths held by in-flight
-        FileResponses. Retention/GC belongs to the upcoming revision store.
+        FileResponses; the rest is collected by gc_workspaces.
         """
         meta = self.get(project_id)
         revision = uuid.uuid4().hex

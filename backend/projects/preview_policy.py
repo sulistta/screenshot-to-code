@@ -11,6 +11,6 @@ PREVIEW_HEADERS = {
 
 def is_private_path(relative: str) -> bool:
     path = PurePosixPath(relative.replace("\\", "/"))
-    return any(part in {".git", ".venv", "node_modules", "__pycache__", ".next", "uploads", "data"}
+    return any(part in {".git", ".venv", "node_modules", "__pycache__", ".next", "uploads", "data", ".studio-deps"}
                or part.startswith(".env") and part != ".env.example"
                for part in path.parts) or path.suffix.lower() in {".sqlite", ".sqlite3", ".db", ".pem", ".key"}

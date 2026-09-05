@@ -163,6 +163,11 @@ class ServiceSupervisor:
         return await self.start(project_id, manifest, env=env)
 
     # --- internals ---------------------------------------------------------------
+    # Python dependencies install into a project-local directory (the sandbox
+    # filesystem is read-only outside /project, and each sandboxed process
+    # gets a fresh /tmp), so service commands import them via PYTHONPATH.
+    DEPS_DIR = ".studio-deps"
+
     async def _run_captured(
         self, workspace_dir: Path, command: List[str], *, timeout: int
     ) -> tuple[int, bytes]:
@@ -214,7 +219,10 @@ class ServiceSupervisor:
         elif (workspace_dir / "package.json").exists():
             commands.append(["pnpm", "install"])
         if (workspace_dir / "requirements.txt").exists():
-            commands.append(["pip", "install", "-r", "requirements.txt"])
+            commands.append([
+                "pip", "install", "--break-system-packages",
+                "--target", self.DEPS_DIR, "-r", "requirements.txt",
+            ])
         for command in commands:
             returncode, output = await self._run_captured(
                 workspace_dir, command, timeout=INSTALL_TIMEOUT
@@ -244,6 +252,10 @@ class ServiceSupervisor:
         ]
         # Services always receive their port as PORT, whatever the profile.
         env = {**env, "PORT": str(port)}
+        deps_dir = workspace_dir / self.DEPS_DIR
+        if deps_dir.is_dir():
+            # Project-local Python dependencies (see _install).
+            env = {**env, "PYTHONPATH": f"/project/{self.DEPS_DIR}"}
         unit: Optional[str] = None
         if self.sandbox:
             try:
@@ -266,6 +278,9 @@ class ServiceSupervisor:
         else:
             process_env = {"PATH": os.environ.get("PATH", ""), "HOME": "/tmp"}
             process_env.update(env)
+            if deps_dir.is_dir():
+                # Direct fallback runs with the real project path as cwd.
+                process_env["PYTHONPATH"] = str(deps_dir)
             process = await asyncio.create_subprocess_exec(
                 *command, cwd=str(workspace_dir), env=process_env,
                 stdin=asyncio.subprocess.DEVNULL,
