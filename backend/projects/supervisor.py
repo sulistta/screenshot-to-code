@@ -76,6 +76,7 @@ class ServiceSupervisor:
         self.store = store
         self.sandbox = sandbox
         self._runtimes: Dict[str, ProjectRuntime] = {}
+        self._starting: set[str] = set()
 
     # --- status ---------------------------------------------------------------
     def status(self, project_id: str) -> Dict[str, object]:
@@ -95,8 +96,22 @@ class ServiceSupervisor:
         manifest: ProjectManifest,
         env: Optional[Dict[str, str]] = None,
     ) -> Dict[str, object]:
-        if self.is_running(project_id):
+        # Re-entry guard: two rapid start calls would otherwise install and
+        # spawn twice, leaking the first process group.
+        if project_id in self._starting or self.is_running(project_id):
             return self.status(project_id)
+        self._starting.add(project_id)
+        try:
+            return await self._start_inner(project_id, manifest, env)
+        finally:
+            self._starting.discard(project_id)
+
+    async def _start_inner(
+        self,
+        project_id: str,
+        manifest: ProjectManifest,
+        env: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, object]:
         if not manifest_is_runnable(manifest):
             return {"state": "stopped", "services": [],
                     "error": "Project has no runnable services (static preview only)"}

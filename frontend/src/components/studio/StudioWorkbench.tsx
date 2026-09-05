@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { useStudioStore } from "@/store/studio-store";
-import { iterationUrl, listIterations, workspaceUrl } from "@/lib/studioApi";
+import { appUrl, getServicesStatus, iterationUrl, listIterations, startServices, stopServices, workspaceUrl } from "@/lib/studioApi";
 import { FileDifference, ProjectFiles, projectExportUrl, projectRequest } from "@/lib/projectApi";
 import ProjectTools from "./ProjectTools";
 const SourceEditor = lazy(() => import("./SourceEditor"));
@@ -32,6 +32,17 @@ export default function StudioWorkbench({ projectId }: { projectId: string }) {
     queryFn: () => projectRequest<ProjectFiles>(projectId, "files") });
   const versions = useQuery({ queryKey: ["versions", projectId, nonce],
     queryFn: () => listIterations(projectId) });
+  // Full-stack projects run through the supervisor and are previewed via
+  // the project gateway instead of the static workspace.
+  const isAppProject = Boolean(files.data?.files["package.json"]);
+  const services = useQuery({
+    queryKey: ["services", projectId],
+    queryFn: () => getServicesStatus(projectId),
+    enabled: isAppProject,
+    refetchInterval: (query) =>
+      query.state.data?.state === "installing" ? 1500 : false,
+  });
+  const appRunning = services.data?.state === "running";
   useEffect(() => {
     if (versions.data) useStudioStore.getState().setIterations(versions.data);
   }, [versions.data]);
@@ -65,9 +76,13 @@ export default function StudioWorkbench({ projectId }: { projectId: string }) {
     finally { setBusy(false); }
   };
   const hasWebPreview = Boolean(files.data?.files["index.html"]);
-  const preview = <iframe ref={frame} title="Project preview" key={`${nonce}:${inspecting}`}
+  const staticPreview = <iframe ref={frame} title="Project preview" key={`${nonce}:${inspecting}`}
     sandbox="allow-scripts allow-forms allow-downloads"
     src={`${workspaceUrl(projectId)}?v=${nonce}&inspect=${inspecting}`} className="workbench-frame" />;
+  const appPreview = <iframe ref={frame} title="App preview" key={`app:${nonce}`}
+    sandbox="allow-scripts allow-forms allow-downloads allow-same-origin"
+    src={`${appUrl(projectId)}?v=${nonce}`} className="workbench-frame" />;
+  const previewFrame = appRunning ? appPreview : staticPreview;
   return <div className="workbench">
     <ProjectTools projectId={projectId} />
     <div className="workbench-toolbar">
@@ -84,8 +99,14 @@ export default function StudioWorkbench({ projectId }: { projectId: string }) {
           <option key={size} value={size}>{size} px</option>)}
       </select></label>
       <button onClick={bumpPreview}>Refresh</button>
+      {isAppProject && (services.data?.state === "running" ?
+        <button onClick={() => execute(() => stopServices(projectId))}>Stop app</button> :
+        <Button size="sm" disabled={services.data?.state === "installing"} onClick={() => execute(() => startServices(projectId))}>
+          {services.data?.state === "installing" ? "Starting…" : "Start app"}
+        </Button>)}
       {hasWebPreview && <button aria-pressed={inspecting} onClick={() => { setInspecting(!inspecting); setSelection(null); }}>{inspecting ? "Exit selection" : "Select element"}</button>}
-      {hasWebPreview && <a href={workspaceUrl(projectId)} target="_blank" rel="noreferrer">Open preview ↗</a>}
+      {appRunning && <a href={appUrl(projectId)} target="_blank" rel="noreferrer">Open app ↗</a>}
+      {hasWebPreview && !appRunning && <a href={workspaceUrl(projectId)} target="_blank" rel="noreferrer">Open preview ↗</a>}
       {runStatus === "running" && <span role="status">Working · showing saved files</span>}
     </div>}
     {selection && <div className="workbench-controls"><code>{selection.selector}</code>
@@ -112,9 +133,22 @@ export default function StudioWorkbench({ projectId }: { projectId: string }) {
         !Object.keys(files.data?.files ?? {}).length ? <div className="workbench-empty">
           <span className="studio-eyebrow">YOUR NEXT IDEA</span><h2>Start with a reference.<br />Make it your own.</h2>
           <p>Attach an image or describe what you want to build in the conversation.</p>
+        </div> : appRunning ? <div className={`preview-comparison ${view === "compare" ? comparison : "single"}`}
+          style={{ width: width === "fluid" ? "100%" : `${width}px` }}>
+          {previewFrame}
+          {view === "compare" && reference && <img src={reference} alt="Design reference"
+            style={comparison === "overlay" ? { opacity: opacity / 100 } : undefined} />}
+        </div> : isAppProject && !hasWebPreview ? <div className="workbench-empty">
+          <span className="studio-eyebrow">RUNNABLE PROJECT</span>
+          <h2>This project runs as an app.</h2>
+          <p>Start it to install dependencies and launch its services; the app opens here and on its own origin.</p>
+          <Button onClick={() => execute(() => startServices(projectId))} disabled={busy || services.data?.state === "installing"}>
+            {services.data?.state === "installing" ? "Starting…" : services.data?.state === "crashed" ? "Try again" : "Start app"}
+          </Button>
+          {services.data?.error && <p role="alert" className="text-sm text-destructive">{services.data.error}</p>}
         </div> : !hasWebPreview ? <div className="workbench-empty"><span className="studio-eyebrow">PROJECT WORKSPACE</span><h2>There is no browser entry point.</h2><p>Use Code to work with this project’s files, or export the project. The agents will detect its language and tooling from the workspace.</p><button onClick={() => setView("code")}>Open code</button></div> : <div className={`preview-comparison ${view === "compare" ? comparison : "single"}`}
           style={{ width: width === "fluid" ? "100%" : `${width}px` }}>
-          {preview}
+          {previewFrame}
           {view === "compare" && reference && <img src={reference} alt="Design reference"
             style={comparison === "overlay" ? { opacity: opacity / 100 } : undefined} />}
         </div>}

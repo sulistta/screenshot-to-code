@@ -103,6 +103,30 @@ Full-stack execution groundwork:
 - Frontend still needs: onboarding checks, resizable panels, run-scoped team
   history view, and the remaining responsive/a11y passes.
 
+## Audit pass (repository-wide)
+
+- Dead weight removed: unused backend dependencies (moviepy, langfuse,
+  keyring, alembic, aiohttp, pre-commit — lockfile shrank by ~2k lines),
+  eleven unused shadcn wrappers (accordion, tabs, select… kept only the
+  seven actually mounted), unused frontend packages (html2canvas, nanoid,
+  react-dropzone, puppeteer, vitest duplicate, thememirror, classnames,
+  copy-to-clipboard, webm-duration-fix and friends) and the broken
+  `test:qa` script pointing at a deleted file. `model_choice_sets.py` was
+  pruned to the single constant the code uses.
+- Journal hot path: the event journal now keeps one persistent SQLite
+  connection instead of opening a connection (plus WAL/PRAGMA setup) per
+  streamed event, including every assistant delta.
+- Supervisor hardening: re-entry guard on `start()` prevents double
+  install/spawn from rapid calls; double `stop()` is idempotent. Verified
+  with a real HTTP service end-to-end.
+- Error surfaces: studio API failures now extract the server's actionable
+  `detail` (string or validation array) instead of showing generic
+  messages, so a 409 like "Stop the active run before deleting" reaches
+  the user.
+- Full-stack preview wired into the workbench: package.json-bearing
+  projects get Start/Stop app controls and render through the project
+  gateway when running, with installing/crashed states surfaced.
+
 ## Verification
 
 Backend: 368 tests passing (`poetry run pytest`); pyright holds the

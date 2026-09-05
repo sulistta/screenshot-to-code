@@ -528,9 +528,6 @@ class ProjectRunManager:
                 },
             )
 
-    def _spawn_broadcast(self, project_id: str, event: Dict[str, Any]) -> None:
-        asyncio.create_task(self._broadcast(project_id, event))
-
     # --- mid-run interaction ------------------------------------------------------
     def answer(self, project_id: str, answer: str, question_id: Optional[str]) -> bool:
         active = self._active.get(project_id)

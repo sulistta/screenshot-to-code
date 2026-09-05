@@ -7,9 +7,20 @@ import type {
 
 const HTTP_BASE = import.meta.env.VITE_HTTP_BACKEND_URL || "";
 
+/** Extract the server's actionable message from an error response. */
+async function failure(response: Response, fallback: string): Promise<Error> {
+  const detail = await response
+    .json()
+    .then((data) =>
+      typeof data.detail === "string" ? data.detail : Array.isArray(data.detail) ? data.detail.map((item: { msg?: string }) => item.msg).join("; ") : null,
+    )
+    .catch(() => null);
+  return new Error(detail || fallback);
+}
+
 export async function listProjects(): Promise<StudioProject[]> {
   const response = await fetch(`${HTTP_BASE}/api/projects`);
-  if (!response.ok) throw new Error("Failed to load projects");
+  if (!response.ok) throw await failure(response, "Failed to load projects");
   const data = await response.json();
   return data.projects;
 }
@@ -23,7 +34,7 @@ export async function createProject(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, brief }),
   });
-  if (!response.ok) throw new Error("Failed to create project");
+  if (!response.ok) throw await failure(response, "Failed to create project");
   const data = await response.json();
   return data.project;
 }
@@ -33,7 +44,7 @@ export async function deleteProject(projectId: string): Promise<void> {
     `${HTTP_BASE}/api/projects/${projectId}`,
     { method: "DELETE" },
   );
-  if (!response.ok) throw new Error("Failed to delete project");
+  if (!response.ok) throw await failure(response, "Failed to delete project");
 }
 
 export async function updateProject(
@@ -45,7 +56,7 @@ export async function updateProject(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
   });
-  if (!response.ok) throw new Error("Failed to update project");
+  if (!response.ok) throw await failure(response, "Failed to update project");
   const data = await response.json();
   return data.project;
 }
@@ -56,7 +67,7 @@ export async function listIterations(
   const response = await fetch(
     `${HTTP_BASE}/api/projects/${projectId}/iterations`,
   );
-  if (!response.ok) throw new Error("Failed to load iterations");
+  if (!response.ok) throw await failure(response, "Failed to load iterations");
   const data = await response.json();
   return data.iterations;
 }
@@ -81,7 +92,7 @@ export async function getTranscript(
   const response = await fetch(
     `${HTTP_BASE}/api/projects/${projectId}/transcript`,
   );
-  if (!response.ok) throw new Error("Failed to load transcript");
+  if (!response.ok) throw await failure(response, "Failed to load transcript");
   const data = await response.json();
   return data.messages;
 }
@@ -100,13 +111,7 @@ export async function startRun(
       body: JSON.stringify({ text, settings, images }),
     },
   );
-  if (!response.ok) {
-    const detail = await response
-      .json()
-      .then((d) => d.detail)
-      .catch(() => null);
-    throw new Error(detail || "Failed to start run");
-  }
+  if (!response.ok) throw await failure(response, "Failed to start run");
   const data = await response.json();
   return data.runId;
 }
@@ -116,11 +121,54 @@ export async function cancelRun(projectId: string): Promise<void> {
     `${HTTP_BASE}/api/projects/${projectId}/cancel`,
     { method: "POST" },
   );
-  if (!response.ok) throw new Error("Nothing to cancel");
+  if (!response.ok) throw await failure(response, "Nothing to cancel");
+}
+
+export interface ServicesStatus {
+  state: "installing" | "running" | "stopped" | "crashed";
+  error?: string | null;
+  services: Array<{
+    name: string;
+    port: number;
+    crashes: number;
+    logs: string[];
+  }>;
+}
+
+export async function getServicesStatus(
+  projectId: string,
+): Promise<ServicesStatus> {
+  const response = await fetch(
+    `${HTTP_BASE}/api/projects/${projectId}/services`,
+  );
+  if (!response.ok) throw await failure(response, "Failed to load services");
+  return response.json();
+}
+
+export async function startServices(projectId: string): Promise<ServicesStatus> {
+  const response = await fetch(
+    `${HTTP_BASE}/api/projects/${projectId}/services/start`,
+    { method: "POST" },
+  );
+  if (!response.ok) throw await failure(response, "Failed to start services");
+  return response.json();
+}
+
+export async function stopServices(projectId: string): Promise<void> {
+  const response = await fetch(
+    `${HTTP_BASE}/api/projects/${projectId}/services/stop`,
+    { method: "POST" },
+  );
+  if (!response.ok) throw await failure(response, "Failed to stop services");
 }
 
 export function workspaceUrl(projectId: string): string {
   return `${HTTP_BASE}/workspace/${projectId}/index.html`;
+}
+
+/** Origin of a running app served through the project preview gateway. */
+export function appUrl(projectId: string): string {
+  return `${HTTP_BASE}/api/projects/${projectId}/app/`;
 }
 
 export function projectSocketUrl(projectId: string): string {
