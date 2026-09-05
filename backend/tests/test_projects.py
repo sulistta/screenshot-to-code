@@ -26,7 +26,7 @@ from projects.store import ProjectStore, TranscriptMessage
 def test_project_store_round_trip(tmp_path: Path) -> None:
     store = ProjectStore(tmp_path / "projects")
     meta = store.create(name="Tea shop", brief="Landing page for Kettle & Co.")
-    assert meta.name == "Tea Shop".replace("Shop", "shop") or True
+    assert meta.name == "Tea shop"
     assert store.get(meta.id).brief == "Landing page for Kettle & Co."
     assert [p.id for p in store.list()] == [meta.id]
 
@@ -194,7 +194,7 @@ async def test_manager_ask_user_round_trip(
                     ToolCall(
                         id="q1",
                         name="ask_user",
-                        arguments={"question": "Dark or light?", "options": ["dark"]},
+                        arguments={"question": "Dark or light?", "options": ["dark", "light", "system", "high contrast"]},
                     )
                 ],
             ),
@@ -287,3 +287,83 @@ async def test_build_run_prompts_create_then_update(tmp_path: Path) -> None:
     )
     joined = " ".join(str(m.get("content")) for m in update_messages)
     assert "make it blue" in joined
+
+
+@pytest.mark.asyncio
+async def test_immediate_cancel_finalizes_run(tmp_path: Path) -> None:
+    store = ProjectStore(tmp_path)
+    project = store.create("Cancel", "")
+    manager = ProjectRunManager(store)
+    run_id = await manager.start_run(
+        project.id, RunRequest(text="Build", settings={"openAiApiKey": "k"})
+    )
+    task = manager._active[project.id].task
+    assert manager.cancel(project.id)
+    assert not manager.cancel(project.id)
+    await task
+    record = store.get_run_record(project.id, run_id)
+    assert record is not None
+    assert record["status"] == "cancelled"
+    assert manager.active_run_id(project.id) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["save_workspace", "save_iteration"])
+async def test_persistence_failure_never_reports_completed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    store = ProjectStore(tmp_path)
+    project = store.create("Failure", "")
+    workspace = store.load_workspace(project.id)
+    workspace.write("index.html", "<html>old</html>")
+    store.save_workspace(project.id, workspace)
+    manager = ProjectRunManager(store)
+    _install_fake_session(monkeypatch, [ProviderTurn(assistant_text="Done", tool_calls=[])])
+
+    def fail(*args: Any, **kwargs: Any) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(store, operation, fail)
+    run_id = await manager.start_run(
+        project.id, RunRequest(text="Update", settings={"openAiApiKey": "k"})
+    )
+    await manager._active[project.id].task
+    record = store.get_run_record(project.id, run_id)
+    assert record is not None
+    assert record["status"] == "failed"
+    assert "Could not save" in record["error"]
+    assert manager._event_buffers[project.id][-1]["status"] == "failed"
+    assert store.load_workspace(project.id).content == "<html>old</html>"
+
+
+@pytest.mark.asyncio
+async def test_modified_files_and_broken_sink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = ProjectStore(tmp_path)
+    project = store.create("Diff", "")
+    workspace = store.load_workspace(project.id)
+    workspace.write("index.html", "<html>old</html>")
+    store.save_workspace(project.id, workspace)
+    manager = ProjectRunManager(store)
+
+    async def broken_sink(event: Any) -> None:
+        raise ConnectionError("gone")
+
+    manager.attach_sink(project.id, broken_sink)
+    _install_fake_session(monkeypatch, [
+        ProviderTurn(assistant_text="", tool_calls=[ToolCall(
+            id="edit", name="create_file", arguments={"content": "<html>new</html>"}
+        )]),
+        ProviderTurn(assistant_text="Updated", tool_calls=[]),
+    ])
+    run_id = await manager.start_run(
+        project.id, RunRequest(text="Update", settings={"openAiApiKey": "k"})
+    )
+    await manager._active[project.id].task
+    record = store.get_run_record(project.id, run_id)
+    assert record is not None
+    assert record["status"] == "completed"
+    assert record["files_changed"] == ["index.html"]
+    events = manager._event_buffers[project.id]
+    assert [event["sequence"] for event in events] == list(range(1, len(events) + 1))

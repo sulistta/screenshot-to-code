@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { projectSocketUrl } from "@/lib/studioApi";
 import type { StudioRunEvent } from "@/types/studio";
+import { useStudioStore } from "@/store/studio-store";
 
 /** One persistent socket per open project; replays events buffered by the
  * manager, so attaching late (or reconnecting) still gets full history. */
@@ -21,17 +22,30 @@ export function useProjectSocket(
     let disposed = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let socket: WebSocket | null = null;
+    let attempts = 0;
 
     const connect = () => {
       if (disposed) return;
-      socket = new WebSocket(projectSocketUrl(projectId));
+      const cursor = useStudioStore.getState().eventCursor;
+      const url = new URL(projectSocketUrl(projectId));
+      if (cursor) {
+        url.searchParams.set("after", String(cursor.sequence));
+        url.searchParams.set("streamId", cursor.streamId);
+      }
+      socket = new WebSocket(url);
       socketRef.current = socket;
 
-      socket.onopen = () => setConnected(true);
+      socket.onopen = () => {
+        if (disposed) return;
+        attempts = 0;
+        setConnected(true);
+      };
       socket.onmessage = (message) => {
+        if (disposed || socketRef.current !== socket) return;
         try {
           const event = JSON.parse(message.data) as StudioRunEvent;
-          onEventRef.current(event);
+          if (!event || typeof event.type !== "string") return;
+          onEventRef.current({ ...event, projectId });
         } catch {
           // Ignore malformed frames; the backend sends JSON only.
         }
@@ -46,7 +60,8 @@ export function useProjectSocket(
           setConnected(false);
         }
         if (!disposed) {
-          retryTimer = setTimeout(connect, 1500);
+          const delay = Math.min(1500 * 2 ** attempts++, 15000);
+          retryTimer = setTimeout(connect, delay + Math.random() * 500);
         }
       };
     };
@@ -66,7 +81,10 @@ export function useProjectSocket(
   }, [projectId]);
 
   const send = useCallback((payload: Record<string, unknown>) => {
-    socketRef.current?.send(JSON.stringify(payload));
+    if (socketRef.current?.readyState !== WebSocket.OPEN) {
+      throw new Error("Not connected. Wait for reconnection and try again.");
+    }
+    socketRef.current.send(JSON.stringify(payload));
   }, []);
 
   return { connected, send };

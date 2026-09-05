@@ -182,7 +182,7 @@ async def test_ask_user_parks_until_answer() -> None:
                         name="ask_user",
                         arguments={
                             "question": "Blue or red?",
-                            "options": ["blue", "red"],
+                            "options": ["blue", "red", "green", "purple"],
                         },
                     )
                 ],
@@ -211,7 +211,7 @@ async def test_ask_user_parks_until_answer() -> None:
     question_events = [e for e in log.events if e.type == "question"]
     assert len(question_events) == 1
     assert question_events[0].question == "Blue or red?"
-    assert question_events[0].options == ["blue", "red"]
+    assert question_events[0].options == ["blue", "red", "green", "purple"]
     # The answer reached the model as the tool result.
     executed = session.appended[0][0]
     assert executed.result.result["answer"] == "dark blue"
@@ -224,7 +224,7 @@ async def test_ask_user_without_interaction_returns_error_tool_result() -> None:
             ProviderTurn(
                 assistant_text="",
                 tool_calls=[
-                    ToolCall(id="q1", name="ask_user", arguments={"question": "Yes?"})
+                    ToolCall(id="q1", name="ask_user", arguments={"question": "Yes?", "options": ["a", "b", "c", "d"]})
                 ],
             ),
             ProviderTurn(assistant_text="", tool_calls=[_create_call()]),
@@ -257,7 +257,7 @@ async def test_ask_user_empty_answer_is_a_decline() -> None:
             ProviderTurn(
                 assistant_text="",
                 tool_calls=[
-                    ToolCall(id="q1", name="ask_user", arguments={"question": "Ok?"})
+                    ToolCall(id="q1", name="ask_user", arguments={"question": "Ok?", "options": ["a", "b", "c", "d"]})
                 ],
             ),
             ProviderTurn(assistant_text="", tool_calls=[_create_call()]),

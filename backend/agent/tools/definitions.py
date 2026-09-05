@@ -137,6 +137,21 @@ def _spawn_agent_schema() -> Dict[str, Any]:
     }
 
 
+def _spawn_agents_schema() -> Dict[str, Any]:
+    brief = _spawn_agent_schema()
+    return {
+        "type": "object",
+        "properties": {
+            "agents": {
+                "type": "array", "minItems": 1, "maxItems": 4,
+                "items": brief,
+                "description": "A dynamically chosen group of independent specialists. Their file_paths must be disjoint.",
+            }
+        },
+        "required": ["agents"],
+    }
+
+
 def _image_schema() -> Dict[str, Any]:
     return {
         "type": "object",
@@ -280,9 +295,10 @@ def _ask_user_schema() -> Dict[str, Any]:
                 "type": "array",
                 "items": {"type": "string"},
                 "description": (
-                    "2-4 concrete answer options the user can pick from, when "
-                    "the choice is enumerable."
+                    "Exactly 4 concrete, distinct answer options. The user can also write a custom answer."
                 ),
+                "minItems": 4,
+                "maxItems": 4,
             },
         },
         "required": ["question"],
@@ -415,7 +431,7 @@ def canonical_tool_definitions(
                     "reasonably inferred from the brief, references, or "
                     "context. Ask at most 1-2 questions per run, early, and "
                     "never about things you can decide yourself. Your run "
-                    "pauses until the user answers."
+                    "pauses until the user answers. You MUST generate exactly four distinct options for every question; the UI also accepts free text."
                 ),
                 parameters=_ask_user_schema(),
             )
@@ -447,6 +463,17 @@ def canonical_tool_definitions(
                     "concurrent subagents must not overlap."
                 ),
                 parameters=_spawn_agent_schema(),
+            )
+        )
+        tools.append(
+            CanonicalToolDefinition(
+                name="spawn_agents",
+                description=(
+                    "Delegate a dynamically selected set of 2-4 independent work units. "
+                    "Use when parallel work helps; choose roles and count from the task, never a fixed roster. "
+                    "Every specialist must own a disjoint file scope."
+                ),
+                parameters=_spawn_agents_schema(),
             )
         )
     tools.extend(

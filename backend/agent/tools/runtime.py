@@ -100,7 +100,7 @@ class AgentToolRuntime:
             return self._list_files()
         if tool_call.name == "research":
             return await self._research(tool_call.arguments)
-        if tool_call.name == "spawn_agent":
+        if tool_call.name in ("spawn_agent", "spawn_agents"):
             return await self._spawn_agent(tool_call.arguments)
         if tool_call.name == "generate_images":
             return await self._generate_images(tool_call.arguments)

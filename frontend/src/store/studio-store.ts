@@ -10,6 +10,7 @@ import type {
 } from "@/types/studio";
 
 export interface RunOutcome {
+  runId: string | null;
   status: StudioRunStatus;
   iterationId: string | null;
   filesChanged: string[];
@@ -25,6 +26,7 @@ export interface StudioActivityItem {
   kind: "thinking" | "assistant" | "tool" | "status";
   text: string;
   toolName?: string;
+  eventId?: string;
   toolDetail?: string;
   ok?: boolean;
 }
@@ -45,6 +47,8 @@ interface StudioState {
   lastOutcome: RunOutcome | null;
   currentRunConfig: RunOutcome["config"];
   settings: Settings | null;
+  currentRunId: string | null;
+  eventCursor: { streamId: string; sequence: number } | null;
 
   setProjects: (projects: StudioProject[]) => void;
   setSettings: (settings: Settings) => void;
@@ -62,7 +66,25 @@ interface StudioState {
 let activityCounter = 0;
 const nextActivityId = () => `evt-${activityCounter++}`;
 
-export const useStudioStore = create<StudioState>((set) => ({
+function mergeMessages(
+  existing: StudioTranscriptMessage[],
+  incoming: StudioTranscriptMessage[],
+): StudioTranscriptMessage[] {
+  const result = [...existing];
+  for (const message of incoming) {
+    const index = result.findIndex((item) =>
+      message.runId
+        ? item.runId === message.runId && item.role === message.role
+        : item.role === message.role && item.text === message.text &&
+          item.createdAt === message.createdAt,
+    );
+    if (index < 0) result.push(message);
+    else result[index] = message;
+  }
+  return result;
+}
+
+export const useStudioStore = create<StudioState>((set, get) => ({
   projects: [],
   activeProjectId: null,
   transcript: [],
@@ -76,6 +98,8 @@ export const useStudioStore = create<StudioState>((set) => ({
   lastOutcome: null,
   currentRunConfig: null,
   settings: null,
+  currentRunId: null,
+  eventCursor: null,
 
   setProjects: (projects) => set({ projects }),
   setSettings: (settings) => set({ settings }),
@@ -97,41 +121,69 @@ export const useStudioStore = create<StudioState>((set) => ({
       iterations: [],
       lastOutcome: null,
       currentRunConfig: null,
+      currentRunId: null,
+      eventCursor: null,
     }),
-  setTranscript: (transcript) => set({ transcript }),
+  setTranscript: (messages) => set((state) => ({
+    // A fetch started before the run completed must not erase its live reply.
+    transcript: mergeMessages(messages, state.transcript.filter((message) =>
+      message.runId && !messages.some((item) =>
+        item.runId === message.runId && item.role === message.role,
+      ),
+    )),
+  })),
   setPreviewContent: (content) => set({ previewContent: content }),
   setError: (error) => set({ error }),
   clearActivity: () => set({ activity: [] }),
 
   handleEvent: (event) => {
+    const state = get();
+    if (event.projectId && event.projectId !== state.activeProjectId) return;
+    if (event.streamId && typeof event.sequence === "number") {
+      if (state.eventCursor?.streamId === event.streamId &&
+          event.sequence <= state.eventCursor.sequence) return;
+      set({ eventCursor: { streamId: event.streamId, sequence: event.sequence } });
+    }
+    if (event.type === "user_message") {
+      set((current) => ({ transcript: mergeMessages(current.transcript, [{
+        role: "user", text: event.text ?? "", images: event.images ?? [],
+        runId: event.runId ?? null, createdAt: new Date().toISOString(),
+      }]) }));
+      return;
+    }
     if (event.type === "run_status") {
       const status = event.status as StudioRunStatus | undefined;
       if (status === "running") {
+        const newRun = !!event.runId && event.runId !== state.currentRunId;
         set({
-          currentRunConfig: event.config ?? null,
+          currentRunId: event.runId ?? state.currentRunId,
+          currentRunConfig: event.config ?? state.currentRunConfig,
           lastOutcome: null,
+          ...(newRun ? { activity: [], error: null } : {}),
         });
       }
       set((state) => {
-        if (status && status !== "running") {
+        if (status && ["completed", "failed", "cancelled", "stuck"].includes(status)) {
+          if (event.runId && state.lastOutcome?.runId === event.runId &&
+              state.lastOutcome.status === status) return state;
           // Move the live activity into the transcript as the run's reply.
-          const replyText = state.activity
+          const replyText = event.message ?? state.activity
             .filter((item) => item.kind === "assistant")
             .map((item) => item.text)
             .join("")
             .trim();
           // Event replays (socket reconnect) re-deliver the terminal status;
           // only append the reply when it is not already the last message.
-          const last = state.transcript[state.transcript.length - 1];
           const alreadyAppended =
-            !!last &&
-            last.role === "assistant" &&
-            last.text === replyText &&
-            last.runId === (event.runId ?? null);
+            state.transcript.some((message) =>
+              message.role === "assistant" && message.text === replyText &&
+              message.runId === (event.runId ?? null),
+            );
           return {
             runStatus: status,
             activeQuestion: null,
             lastOutcome: {
+              runId: event.runId ?? null,
               status,
               iterationId: event.iterationId ?? null,
               filesChanged: event.filesChanged ?? [],
@@ -139,8 +191,7 @@ export const useStudioStore = create<StudioState>((set) => ({
             },
             transcript:
               replyText && state.activeProjectId && !alreadyAppended
-                ? [
-                    ...state.transcript,
+                ? mergeMessages(state.transcript, [
                     {
                       role: "assistant" as const,
                       text: replyText,
@@ -148,13 +199,17 @@ export const useStudioStore = create<StudioState>((set) => ({
                       runId: event.runId ?? null,
                       images: [],
                     },
-                  ]
+                  ])
                 : state.transcript,
             activity: [],
             previewNonce: state.previewNonce + 1,
+            error: event.error ?? state.error,
           };
         }
-        return { runStatus: status ?? "running", activeQuestion: null };
+        return {
+          runStatus: status ?? "running",
+          activeQuestion: status === "waiting_for_user" ? state.activeQuestion : null,
+        };
       });
       return;
     }
@@ -178,13 +233,22 @@ export const useStudioStore = create<StudioState>((set) => ({
       return;
     }
 
+    if (event.type === "swarm_agent") {
+      set((current) => ({ activity: [...current.activity, {
+        id: nextActivityId(), kind: "tool", toolName: "spawn_agent",
+        toolDetail: `${event.agent ?? "Specialist"}: ${event.eventType ?? "working"}`,
+        ok: true, text: "",
+      }] }));
+      return;
+    }
+
     set((state) => {
       const activity = [...state.activity];
       const last = activity[activity.length - 1];
 
       if (event.type === "thinking_delta" || event.type === "assistant_delta") {
         const kind = event.type === "thinking_delta" ? "thinking" : "assistant";
-        if (last && last.kind === kind && last.id === activity[activity.length - 1].id) {
+        if (last && last.kind === kind && last.eventId === event.eventId) {
           // Streaming deltas accumulate on the last item of the same kind,
           // unless a tool item came between (then a new one starts).
           const updated = { ...last, text: last.text + (event.text ?? "") };
@@ -193,6 +257,7 @@ export const useStudioStore = create<StudioState>((set) => ({
           activity.push({
             id: nextActivityId(),
             kind,
+            eventId: event.eventId,
             text: event.text ?? "",
           });
         }
@@ -205,16 +270,18 @@ export const useStudioStore = create<StudioState>((set) => ({
           kind: "tool",
           text: "",
           toolName: event.name ?? "tool",
+          eventId: event.eventId,
           toolDetail: summarizeToolInput(event.name, event.input),
         });
         return { activity };
       }
 
       if (event.type === "tool_result") {
-        // Attach the result to the last tool item with no outcome yet.
+        // Tools may finish out of order. Provider call IDs are authoritative.
         for (let i = activity.length - 1; i >= 0; i -= 1) {
           const item = activity[i];
-          if (item.kind === "tool" && item.ok === undefined) {
+          if (item.kind === "tool" && item.ok === undefined &&
+              (!event.eventId || item.eventId === event.eventId)) {
             activity[i] = {
               ...item,
               ok: event.ok ?? true,
@@ -266,6 +333,8 @@ function summarizeToolInput(
       const role = typeof input.role === "string" ? input.role : "specialist";
       return `Delegated to ${role}`;
     }
+    case "spawn_agents":
+      return "Dispatched a parallel swarm";
     case "ask_user":
       return typeof input.question === "string" ? input.question : "Asked a question";
     case "research":

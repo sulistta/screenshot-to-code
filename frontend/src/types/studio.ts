@@ -5,6 +5,9 @@
  */
 
 export interface StudioProject {
+  favorite?: boolean;
+  archived?: boolean;
+  trashed?: boolean;
   id: string;
   name: string;
   brief: string;
@@ -50,6 +53,7 @@ export interface StudioTranscriptMessage {
 
 export interface StudioRunEvent {
   type:
+    | "user_message"
     | "assistant_delta"
     | "thinking_delta"
     | "tool_start"
@@ -57,9 +61,15 @@ export interface StudioRunEvent {
     | "set_code"
     | "question"
     | "status"
+    | "swarm_agent"
     | "run_status";
   runId?: string;
+  projectId?: string;
+  streamId?: string;
+  sequence?: number;
   eventId?: string;
+  images?: string[];
+  error?: string | null;
   text?: string;
   name?: string;
   input?: Record<string, unknown>;
@@ -72,6 +82,8 @@ export interface StudioRunEvent {
   options?: string[] | null;
   message?: string;
   status?: string;
+  agent?: string;
+  eventType?: string;
   iterationId?: string | null;
   filesChanged?: string[];
   config?: {

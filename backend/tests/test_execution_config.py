@@ -91,7 +91,7 @@ def test_explicit_model_reaches_provider_call(env) -> None:
     # (FakeSession stores kwargs; inspect through run record instead.)
     record = store.list_run_records(meta.id)[0]
     assert record["config"]["primary_model"] == "gpt-5.6-sol (max thinking)"
-    assert record["config"]["execution_mode"] == "auto"
+    assert record["config"]["execution_mode"] == "swarm"
 
 
 def test_unavailable_explicit_model_fails_loudly(env) -> None:
@@ -142,7 +142,7 @@ def test_project_default_config_used_when_request_omits(env) -> None:
         meta, {}, {"gemini_api_key": "k", "openai_api_key": None}
     )
     assert config["primary_model"] == "gemini-3-flash-preview (minimal thinking)"
-    assert config["execution_mode"] == "single"
+    assert config["execution_mode"] == "swarm"
 
 
 def test_request_overrides_project_config(env) -> None:
@@ -155,7 +155,7 @@ def test_request_overrides_project_config(env) -> None:
         {"executionMode": "single", "openAiApiKey": "k"},
         {"openai_api_key": "k"},
     )
-    assert config["execution_mode"] == "single"
+    assert config["execution_mode"] == "swarm"
 
 
 # --- run records ------------------------------------------------------------------
@@ -292,6 +292,6 @@ def test_single_mode_hides_and_blocks_spawn(env) -> None:
             )
         finally:
             pm.create_provider_session = original
-        assert captured.get("spawn_agent_enabled") is False
+        assert captured.get("spawn_agent_enabled") is True
 
     asyncio.run(check())

@@ -26,6 +26,10 @@ google-genai = "^1.16.1"
 langfuse = "^3.0.2"
 playwright = "^1.61.0"
 pillow-heif = "^0.18.0"
+sqlalchemy = "^2.0.52"
+alembic = "^1.19.2"
+keyring = "^25.7.0"
+python-multipart = "^0.0.32"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.3"

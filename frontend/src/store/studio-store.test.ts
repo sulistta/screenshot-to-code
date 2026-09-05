@@ -16,6 +16,8 @@ describe("studio store event handling", () => {
       lastOutcome: null,
       currentRunConfig: null,
       settings: null,
+      currentRunId: null,
+      eventCursor: null,
     });
   });
 
@@ -88,6 +90,49 @@ describe("studio store event handling", () => {
     const { handleEvent } = useStudioStore.getState();
     handleEvent({ type: "set_code", content: "<html>x</html>", source: "tool_result" });
     expect(useStudioStore.getState().previewContent).toBe("<html>x</html>");
+  });
+
+  it("ignores a replayed stream and late events from another project", () => {
+    const { handleEvent } = useStudioStore.getState();
+    const delta = {
+      type: "assistant_delta" as const, projectId: "p1", runId: "r1",
+      streamId: "s1", sequence: 1, text: "Once",
+    };
+    handleEvent(delta);
+    handleEvent(delta);
+    handleEvent({ ...delta, projectId: "p2", sequence: 2, text: "Wrong" });
+    expect(useStudioStore.getState().activity[0].text).toBe("Once");
+    handleEvent({ ...delta, streamId: "s2", text: "Again" });
+    expect(useStudioStore.getState().activity[0].text).toBe("OnceAgain");
+  });
+
+  it("matches out-of-order tool results by call ID", () => {
+    const { handleEvent } = useStudioStore.getState();
+    handleEvent({ type: "tool_start", eventId: "a", name: "read_file" });
+    handleEvent({ type: "tool_start", eventId: "b", name: "create_file" });
+    handleEvent({ type: "tool_result", eventId: "a", ok: false });
+    handleEvent({ type: "tool_result", eventId: "b", ok: true });
+    expect(useStudioStore.getState().activity.map((item) => item.ok)).toEqual([false, true]);
+  });
+
+  it("keeps live messages when an older transcript request finishes", () => {
+    const { handleEvent, setTranscript } = useStudioStore.getState();
+    handleEvent({ type: "user_message", runId: "r1", text: "Build", images: [] });
+    handleEvent({ type: "user_message", runId: "r1", text: "Build", images: [] });
+    handleEvent({ type: "run_status", runId: "r1", status: "failed",
+      message: "Could not save", error: "Disk full" });
+    setTranscript([]);
+    expect(useStudioStore.getState().transcript.map((message) => message.text))
+      .toEqual(["Build", "Could not save"]);
+    expect(useStudioStore.getState().error).toBe("Disk full");
+  });
+
+  it("does not finalize a waiting run or clear its activity", () => {
+    const { handleEvent } = useStudioStore.getState();
+    handleEvent({ type: "assistant_delta", text: "Question" });
+    handleEvent({ type: "run_status", status: "waiting_for_user" });
+    expect(useStudioStore.getState().lastOutcome).toBeNull();
+    expect(useStudioStore.getState().activity).toHaveLength(1);
   });
 });
 

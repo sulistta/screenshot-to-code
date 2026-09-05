@@ -312,8 +312,15 @@ class AgentRuntime:
                 option = str(raw_option).strip()
                 if option:
                     cleaned.append(option)
-            if cleaned:
+            if len(cleaned) == 4 and len(set(cleaned)) == 4:
                 options = cleaned
+
+        if options is None:
+            return ToolExecutionResult(
+                ok=False,
+                result={"error": "ask_user requires exactly 4 distinct, non-empty options."},
+                summary={"error": "Four answer options required"},
+            )
 
         if self.interaction is None:
             return ToolExecutionResult(

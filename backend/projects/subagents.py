@@ -219,6 +219,8 @@ async def run_subagents_parallel(
     request_settings: Dict[str, Any],
     keys: Dict[str, Optional[str]],
     max_concurrency: int = 3,
+    emit: Optional[SubagentEmitter] = None,
+    custom_model_id: Optional[str] = None,
 ) -> List[SubagentResult]:
     """Run independent scoped subagents concurrently.
 
@@ -226,12 +228,19 @@ async def run_subagents_parallel(
     each subagent merges its own files, so overlapping scopes would be
     last-writer-wins — avoid overlapping briefs.
     """
+    seen: set[str] = set()
+    for brief in briefs:
+        overlap = seen.intersection(brief.file_paths)
+        if overlap:
+            return [SubagentResult(ok=False, summary="", error=f"Overlapping swarm file scope: {', '.join(sorted(overlap))}", status=RunStatus.FAILED)]
+        seen.update(brief.file_paths)
     semaphore = asyncio.Semaphore(max_concurrency)
 
     async def guarded(brief: SubagentBrief) -> SubagentResult:
         async with semaphore:
             return await run_subagent(
-                brief, parent_workspace, model, request_settings, keys
+                brief, parent_workspace, model, request_settings, keys, emit=emit,
+                custom_model_id=custom_model_id,
             )
 
     return list(await asyncio.gather(*(guarded(brief) for brief in briefs)))

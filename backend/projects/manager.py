@@ -13,10 +13,11 @@ async callable receiving RunEvent. The project WS route attaches itself as
 a sink; when no transport is attached, runs still work and persist.
 """
 import asyncio
+import logging
 import os
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, cast
 
 from openai.types.chat import ChatCompletionMessageParam
 
@@ -36,8 +37,10 @@ from config import (
 from fs_logging.agent_runs import AgentRunRecorder
 from llm import ANTHROPIC_MODELS, GEMINI_MODELS, MODEL_PROVIDER, OPENAI_MODELS, Llm
 from projects.store import ProjectStore, TranscriptMessage
+from projects.event_store import EventJournal
 
 RunEventSink = Callable[[Any], Any]  # async callable(RunEvent)
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -57,6 +60,8 @@ class ActiveRun:
     task: "asyncio.Task[None]"
     gate: QuestionGate
     status: RunStatus
+    started: bool = False
+    cancelling: bool = False
 
 
 class ProjectRunManager:
@@ -69,11 +74,28 @@ class ProjectRunManager:
         # missing everything that happened before they subscribed.
         self._event_buffers: Dict[str, List[Dict[str, Any]]] = {}
         self._event_buffer_limit = 500
+        self.journal = EventJournal(store.root / ".events.sqlite3")
+        self._recover_interrupted_runs()
+
+    def _recover_interrupted_runs(self) -> None:
+        """A process restart cannot resume provider sessions; finish them explicitly."""
+        for project in self.store.list():
+            for record in self.store.list_run_records(project.id):
+                if record.get("status") not in {"running", "waiting_for_user"}:
+                    continue
+                run_id = record["run_id"]
+                message = "Run interrupted by a Studio restart. Saved files are preserved; send a message to continue."
+                self.store.finish_run_record(project.id, run_id, "failed", error=message)
+                self.store.append_transcript_message(project.id, TranscriptMessage(
+                    role="assistant", text=message, run_id=run_id))
+                self.journal.append(project.id, {"type": "run_status", "runId": run_id,
+                    "status": "failed", "message": message, "error": message,
+                    "filesChanged": [], "iterationId": None})
 
     # --- transports -----------------------------------------------------------
-    def attach_sink(self, project_id: str, sink: RunEventSink) -> None:
+    def attach_sink(self, project_id: str, sink: RunEventSink, replay: bool = True) -> None:
         self._sinks.setdefault(project_id, []).append(sink)
-        for event in list(self._event_buffers.get(project_id, [])):
+        for event in list(self._event_buffers.get(project_id, [])) if replay else []:
             self._put(sink, event)
 
     def detach_sink(self, project_id: str, sink: RunEventSink) -> None:
@@ -90,12 +112,19 @@ class ProjectRunManager:
             asyncio.create_task(result)
 
     async def _broadcast(self, project_id: str, event: Dict[str, Any]) -> None:
+        event = self.journal.append(project_id, event)
         buffer = self._event_buffers.setdefault(project_id, [])
         buffer.append(event)
         if len(buffer) > self._event_buffer_limit:
             del buffer[: len(buffer) - self._event_buffer_limit]
         for sink in list(self._sinks.get(project_id, [])):
-            await sink(event)
+            try:
+                await sink(event)
+            except Exception:
+                # A disconnected UI must not turn a successful generation into
+                # a failed run. The client can reconnect and replay the buffer.
+                logger.warning("Detached failed project event sink", exc_info=True)
+                self.detach_sink(project_id, sink)
 
     # --- run lifecycle -----------------------------------------------------------
     def active_run_id(self, project_id: str) -> Optional[str]:
@@ -124,7 +153,9 @@ class ProjectRunManager:
 
         self.store.append_transcript_message(
             project_id,
-            TranscriptMessage(role="user", text=request.text, images=request.images),
+            TranscriptMessage(
+                role="user", text=request.text, images=request.images, run_id=run_id
+            ),
         )
         self.store.start_run_record(project_id, run_id, config)
 
@@ -148,11 +179,23 @@ class ProjectRunManager:
         status = RunStatus.FAILED
         assistant_reply = ""
         workspace: Optional[Workspace] = None
-        files_before: set[str] = set()
+        files_before: Dict[str, str] = {}
         error_message: Optional[str] = None
         try:
+            active = self._active[project_id]
+            active.started = True
+            if active.cancelling:
+                raise asyncio.CancelledError()
+            await self._broadcast(project_id, {
+                "type": "run_status", "runId": run_id,
+                "status": "running", "config": config,
+            })
+            await self._broadcast(project_id, {
+                "type": "user_message", "runId": run_id,
+                "text": request.text, "images": request.images,
+            })
             workspace = self.store.load_workspace(project_id)
-            files_before = set(workspace.files)
+            files_before = dict(workspace.files)
             prompt_messages = await build_run_prompts(
                 workspace,
                 request,
@@ -170,9 +213,7 @@ class ProjectRunManager:
             primary_custom_id = custom_model_id_of(config["primary_model"])
             subagent_custom_id = custom_model_id_of(config["subagent_model"])
             engine_keys = extract_engine_keys(settings)
-            # SINGLE prohibits delegation structurally: the tool is not
-            # advertised and no runner exists to service it.
-            delegation_allowed = config["execution_mode"] in ("auto", "swarm")
+            delegation_allowed = True
 
             recorder = AgentRunRecorder(
                 generation_id=f"proj_{project_id}_{run_id}",
@@ -215,42 +256,36 @@ class ProjectRunManager:
                 await self._broadcast(project_id, _event_to_wire(event, run_id))
 
             try:
-                from projects.subagents import SubagentBrief, run_subagent
+                from projects.subagents import SubagentBrief, run_subagent, run_subagents_parallel
 
                 async def subagent_runner(args: Dict[str, Any]) -> Any:
                     from agent.tools.types import ToolExecutionResult
 
-                    brief = SubagentBrief(
-                        role=str(args.get("role", "specialist")),
-                        objective=str(args.get("objective", "")),
-                        file_paths=[
-                            path
-                            for path in list(args.get("file_paths") or [])
-                            if isinstance(path, str)
-                        ],
-                        guidance=str(args.get("guidance", "") or ""),
-                        parent_context=str(args.get("context", "") or ""),
-                    )
-                    outcome = await run_subagent(
-                        brief,
-                        workspace,
-                        subagent_model,
-                        settings,
-                        engine_keys,
-                        custom_model_id=subagent_custom_id,
-                    )
+                    raw: List[Any] = list(args["agents"]) if isinstance(args.get("agents"), list) else [args]
+                    briefs: List[SubagentBrief] = []
+                    for item in raw:
+                        if not isinstance(item, dict):
+                            continue
+                        candidate_paths = cast(List[object], item.get("file_paths")) if isinstance(item.get("file_paths"), list) else []
+                        paths = [path for path in candidate_paths if isinstance(path, str)] if isinstance(candidate_paths, list) else []
+                        briefs.append(SubagentBrief(role=str(item.get("role", "specialist")), objective=str(item.get("objective", "")), file_paths=paths, guidance=str(item.get("guidance", "") or ""), parent_context=str(item.get("context", "") or "")))
+                    async def swarm_emit(event: Dict[str, Any]) -> None:
+                        await self._broadcast(project_id, {"type": "swarm_agent", "runId": run_id, "agent": event.get("agent"), "eventType": getattr(event.get("event"), "type", "status")})
+                    if len(briefs) > 1:
+                        outcomes = await run_subagents_parallel(briefs, workspace, subagent_model, settings, engine_keys, emit=swarm_emit, custom_model_id=subagent_custom_id)
+                    else:
+                        outcomes = [await run_subagent(briefs[0], workspace, subagent_model, settings, engine_keys, custom_model_id=subagent_custom_id, emit=swarm_emit)] if briefs else []
+                    outcome = outcomes[0] if len(outcomes) == 1 else None
                     return ToolExecutionResult(
-                        ok=outcome.ok,
+                        ok=bool(outcomes) and all(item.ok for item in outcomes),
                         result={
-                            "summary": outcome.summary,
-                            "files": outcome.files,
-                            **({"error": outcome.error} if outcome.error else {}),
+                            "summary": outcome.summary if outcome else "Parallel swarm completed.",
+                            "files": [path for item in outcomes for path in item.files],
+                            "agents": [{"role": brief.role, "summary": item.summary, "files": item.files, "error": item.error} for brief, item in zip(briefs, outcomes)],
                         },
                         summary={
-                            "role": brief.role,
-                            "ok": outcome.ok,
-                            "files": outcome.files,
-                            "summary": outcome.summary[:300],
+                            "roles": [brief.role for brief in briefs],
+                            "ok": bool(outcomes) and all(item.ok for item in outcomes),
                         },
                     )
 
@@ -267,15 +302,6 @@ class ProjectRunManager:
                     interaction=gate,
                     config=RuntimeConfig(budget_usd=GENERATION_MAX_COST_USD),
                     file_state=workspace,
-                )
-                await self._broadcast(
-                    project_id,
-                    {
-                        "type": "run_status",
-                        "runId": run_id,
-                        "status": "running",
-                        "config": config,
-                    },
                 )
                 result = await runtime.run(model, prompt_messages)
                 if not result:
@@ -302,16 +328,23 @@ class ProjectRunManager:
             # from a cancelled run still counts.
             files_changed: List[str] = []
             iteration_id: Optional[str] = None
+            def persistence_failed(operation: str) -> None:
+                nonlocal status, error_message, assistant_reply
+                logger.exception("Could not persist %s for run %s", operation, run_id)
+                status = RunStatus.FAILED
+                error_message = f"Could not save {operation}. Check available disk space and permissions."
+                assistant_reply = f"Run failed: {error_message}"
+
             try:
                 if workspace is not None:
                     self.store.save_workspace(project_id, workspace)
                     files_changed = sorted(
                         path
-                        for path in set(workspace.files) ^ files_before
-                        if path in workspace.files
+                        for path in workspace.files.keys() | files_before.keys()
+                        if workspace.files.get(path) != files_before.get(path)
                     )
             except Exception:
-                pass
+                persistence_failed("the workspace")
             # Only completed executions become iterations: a checkpoint is a
             # meaningful, validated state, not every intermediate write.
             if status is RunStatus.COMPLETED and workspace is not None:
@@ -328,16 +361,8 @@ class ProjectRunManager:
                     )
                     iteration_id = record["id"]
                 except Exception:
-                    pass
+                    persistence_failed("the version")
             try:
-                self.store.finish_run_record(
-                    project_id,
-                    run_id,
-                    status.value,
-                    files_changed=files_changed,
-                    iteration_id=iteration_id,
-                    error=error_message,
-                )
                 self.store.append_transcript_message(
                     project_id,
                     TranscriptMessage(
@@ -347,7 +372,15 @@ class ProjectRunManager:
                     ),
                 )
             except Exception:
-                pass
+                persistence_failed("the conversation")
+            try:
+                self.store.finish_run_record(
+                    project_id, run_id, status.value,
+                    files_changed=files_changed, iteration_id=iteration_id,
+                    error=error_message,
+                )
+            except Exception:
+                persistence_failed("the run record")
             self._active.pop(project_id, None)
             await self._broadcast(
                 project_id,
@@ -357,6 +390,8 @@ class ProjectRunManager:
                     "status": status.value,
                     "iterationId": iteration_id,
                     "filesChanged": files_changed,
+                    "message": assistant_reply,
+                    "error": error_message,
                 },
             )
 
@@ -372,32 +407,18 @@ class ProjectRunManager:
 
     def cancel(self, project_id: str) -> bool:
         active = self._active.get(project_id)
-        if active is None or active.task.done():
+        if active is None or active.task.done() or active.cancelling:
             return False
-        active.task.cancel()
+        active.cancelling = True
+        # Cancelling before the coroutine starts skips its finally block. Let
+        # it enter first so the durable run record is always finalized.
+        if active.started:
+            active.task.cancel()
         return True
 
 
 def _mode_directive(execution_mode: str) -> str:
-    if execution_mode == "single":
-        return (
-            "\n\n# Execution mode: SINGLE\n"
-            "- You work alone in this run: no subagents are available. Do the "
-            "work yourself, even when it is large; sequence it yourself.\n"
-        )
-    if execution_mode == "swarm":
-        return (
-            "\n\n# Execution mode: SWARM\n"
-            "- Delegation is encouraged for substantial builds: decompose the "
-            "work into 2-4 scoped specialists (via spawn_agent) where the "
-            "parts are genuinely separable. Still avoid ceremony: a small "
-            "task may not need any subagent.\n"
-        )
-    return (
-        "\n\n# Execution mode: AUTO\n"
-        "- You decide whether delegation adds value. Spawn a subagent only "
-        "for a genuinely separable unit of work; most tasks need none.\n"
-    )
+    return "\n\n# Dynamic swarm\n- Decide whether the task needs 0, 1, or many specialists; there is no fixed roster. For independent work, use spawn_agents with 2-4 disjoint scopes so they run concurrently. Otherwise use spawn_agent. Integrate and review results before finishing.\n- Material ambiguity belongs in ask_user, which must have exactly four concrete options.\n"
 
 
 def _event_to_wire(event: Any, run_id: str) -> Dict[str, Any]:
@@ -483,11 +504,7 @@ def resolve_execution_config(
     subagent = str(
         settings.get("subagentModel") or meta.subagent_model or ""
     ).strip()
-    mode = str(
-        settings.get("executionMode") or meta.execution_mode or "auto"
-    ).strip()
-    if mode not in ("auto", "single", "swarm"):
-        raise ValueError(f"Invalid execution mode: {mode}")
+    mode = "swarm"
 
     available_by_value = available_models(keys)
     # A user-registered custom provider makes the OpenAI-compatible model

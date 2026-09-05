@@ -1,3 +1,5 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } } });
 import React from "react";
 import ReactDOM from "react-dom/client";
 import StudioPage from "./components/studio/StudioPage.tsx";
@@ -15,9 +17,10 @@ import EvalComparePage from "./components/evals/EvalComparePage.tsx";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <Router>
+    <QueryClientProvider client={queryClient}><Router>
       <Routes>
         <Route path="/" element={<StudioPage />} />
+        <Route path="/projects/:projectId" element={<StudioPage />} />
         <Route path="/evals" element={<AllEvalsPage />} />
         <Route path="/evals/best-of-n" element={<BestOfNEvalsPage />} />
         <Route path="/evals/run" element={<RunEvalsPage />} />
@@ -30,7 +33,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <Route path="/evals/sessions" element={<EvalSessionsPage />} />
         <Route path="/evals/compare" element={<EvalComparePage />} />
       </Routes>
-    </Router>
+    </Router></QueryClientProvider>
     <Toaster toastOptions={{ className: "dark:bg-zinc-950 dark:text-white" }} />
   </React.StrictMode>
 );

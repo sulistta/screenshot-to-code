@@ -65,7 +65,7 @@ export function iterationUrl(
   projectId: string,
   iterationId: string,
 ): string {
-  return `${HTTP_BASE}/api/projects/${projectId}/iterations/${iterationId}`;
+  return `${HTTP_BASE}/api/projects/${projectId}/iterations/${iterationId}/files/index.html`;
 }
 
 export async function getAvailableModels(): Promise<string[]> {
@@ -120,7 +120,7 @@ export async function cancelRun(projectId: string): Promise<void> {
 }
 
 export function workspaceUrl(projectId: string): string {
-  return `${HTTP_BASE}/workspace/${projectId}`;
+  return `${HTTP_BASE}/workspace/${projectId}/index.html`;
 }
 
 export function projectSocketUrl(projectId: string): string {

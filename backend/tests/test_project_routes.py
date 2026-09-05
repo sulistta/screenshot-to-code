@@ -115,7 +115,7 @@ def test_ws_question_round_trip(tmp_path, monkeypatch) -> None:
                         ToolCall(
                             id="q1",
                             name="ask_user",
-                            arguments={"question": "Dark or light theme?"},
+                            arguments={"question": "Dark or light theme?", "options": ["Dark", "Light", "System", "High contrast"]},
                         )
                     ],
                 )

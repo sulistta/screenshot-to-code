@@ -5,12 +5,11 @@ studio UI and carries user answers to mid-run ask_user questions.
 """
 import asyncio
 import json
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import RedirectResponse
 
-from agent.workspace import InvalidWorkspacePath
 from projects.manager import (
     ProjectRunManager,
     RunAlreadyActive,
@@ -22,6 +21,7 @@ from projects.store import (
     default_store,
 )
 from ws.constants import APP_ERROR_WEB_SOCKET_CODE
+from projects.preview_policy import PREVIEW_HEADERS, is_private_path
 
 router = APIRouter()
 
@@ -37,6 +37,10 @@ def get_manager() -> ProjectRunManager:
 
 
 def _meta_json(meta: Any) -> Dict[str, Any]:
+    try:
+        options = get_manager().store.database.get(get_manager().store.root / meta.id / "options.json")
+    except FileNotFoundError:
+        options = {}
     return {
         "id": meta.id,
         "name": meta.name,
@@ -46,6 +50,9 @@ def _meta_json(meta: Any) -> Dict[str, Any]:
         "primaryModel": meta.primary_model,
         "subagentModel": meta.subagent_model,
         "executionMode": meta.execution_mode,
+        "favorite": bool(options.get("favorite", False)),
+        "archived": bool(options.get("archived", False)),
+        "trashed": bool(options.get("trashed", False)),
     }
 
 
@@ -92,6 +99,8 @@ async def update_project(project_id: str, body: Dict[str, Any]) -> Dict[str, Any
 
 @router.delete("/api/projects/{project_id}", status_code=204)
 async def delete_project(project_id: str) -> None:
+    if get_manager().active_run_id(project_id) is not None:
+        raise HTTPException(status_code=409, detail="Stop the active run before deleting this project")
     try:
         get_manager().store.delete(project_id)
     except ProjectNotFoundError:
@@ -189,9 +198,9 @@ async def serve_iteration_file(
         )
     except (ProjectNotFoundError, InvalidProjectPath):
         raise HTTPException(status_code=404, detail="File not found")
-    if not file_path.is_file():
+    if not file_path.is_file() or is_private_path(path):
         raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(file_path)
+    return FileResponse(file_path, headers=PREVIEW_HEADERS)
 
 
 @router.get("/api/projects/{project_id}/iterations/{iteration_id}")
@@ -206,7 +215,10 @@ async def serve_iteration_entry(project_id: str, iteration_id: str) -> Any:
         raise HTTPException(status_code=404, detail="Iteration not found")
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="Iteration has no entry file")
-    return FileResponse(file_path)
+    return RedirectResponse(
+        url=f"/api/projects/{project_id}/iterations/{iteration_id}/files/index.html",
+        status_code=307,
+    )
 
 
 @router.get("/api/models")
@@ -224,33 +236,35 @@ async def available_models_route() -> Dict[str, Any]:
 
 
 @router.get("/workspace/{project_id}/{path:path}")
-async def serve_workspace_file(project_id: str, path: str) -> Any:
+async def serve_workspace_file(project_id: str, path: str, inspect: bool = False) -> Any:
     """Serve live workspace files so the preview runs a real multi-file site."""
     from fastapi.responses import FileResponse
 
     manager = get_manager()
     try:
-        file_path = manager.store.workspace_file(project_id, path)
+        file_path = manager.store.workspace_file(project_id, path or "index.html")
     except (ProjectNotFoundError, InvalidProjectPath):
         raise HTTPException(status_code=404, detail="File not found")
-    if not file_path.is_file():
+    if not file_path.is_file() or is_private_path(path):
         raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(file_path)
+    if inspect and file_path.suffix.lower() in {".html", ".htm"}:
+        from fastapi.responses import HTMLResponse
+        from projects.inspector import with_inspector
+        return HTMLResponse(with_inspector(file_path.read_text(encoding="utf-8")), headers=PREVIEW_HEADERS)
+    return FileResponse(file_path, headers=PREVIEW_HEADERS)
 
 
 @router.get("/workspace/{project_id}")
 async def serve_workspace_entry(project_id: str) -> Any:
     try:
-        meta = get_manager().store.get(project_id)
+        get_manager().store.get(project_id)
         entry = "index.html"
         file_path = get_manager().store.workspace_file(project_id, entry)
         if not file_path.is_file():
             raise HTTPException(status_code=404, detail="Workspace is empty")
     except (ProjectNotFoundError, InvalidProjectPath):
         raise HTTPException(status_code=404, detail="Project not found")
-    from fastapi.responses import FileResponse
-
-    return FileResponse(file_path)
+    return RedirectResponse(url=f"/workspace/{project_id}/index.html", status_code=307)
 
 
 @router.websocket("/ws/projects/{project_id}")
@@ -269,12 +283,23 @@ async def project_socket(websocket: WebSocket, project_id: str) -> None:
         return
 
     await websocket.accept()
-    queue: "asyncio.Queue[Dict[str, Any]]" = asyncio.Queue()
+    queue: "asyncio.Queue[Dict[str, Any]]" = asyncio.Queue(maxsize=512)
+    overflow = asyncio.Event()
 
     async def sink(event: Dict[str, Any]) -> None:
-        await queue.put(event)
+        try:
+            queue.put_nowait(event)
+        except asyncio.QueueFull:
+            overflow.set()
 
-    manager.attach_sink(project_id, sink)
+    try:
+        after = max(0, int(websocket.query_params.get("after", "0")))
+    except ValueError:
+        await websocket.close(code=1008)
+        return
+    if websocket.query_params.get("streamId") != manager.journal.stream_id:
+        after = 0
+    manager.attach_sink(project_id, sink, replay=False)
 
     async def reader() -> None:
         while True:
@@ -282,6 +307,8 @@ async def project_socket(websocket: WebSocket, project_id: str) -> None:
             try:
                 message = json.loads(raw)
             except json.JSONDecodeError:
+                continue
+            if not isinstance(message, dict):
                 continue
             if message.get("type") == "answer":
                 manager.answer(
@@ -294,15 +321,34 @@ async def project_socket(websocket: WebSocket, project_id: str) -> None:
 
     reader_task = asyncio.create_task(reader())
     queue_get = asyncio.create_task(queue.get())
+    overflow_task = asyncio.create_task(overflow.wait())
     try:
+        # Subscribe before replay: events produced while sending history are
+        # queued, then duplicates are removed by the cursor below.
+        while True:
+            batch = manager.journal.read(project_id, after)
+            if not batch:
+                break
+            for event in batch:
+                await websocket.send_json(event)
+                after = int(event["sequence"])
+            if overflow.is_set():
+                await websocket.close(code=1013, reason="Reconnect to resume events")
+                return
         while True:
             done, _ = await asyncio.wait(
-                {reader_task, queue_get},
+                {reader_task, queue_get, overflow_task},
                 return_when=asyncio.FIRST_COMPLETED,
             )
             if queue_get in done:
-                await websocket.send_json(queue_get.result())
+                event = queue_get.result()
+                if int(event["sequence"]) > after:
+                    await websocket.send_json(event)
+                    after = int(event["sequence"])
                 queue_get = asyncio.create_task(queue.get())
+            if overflow_task in done:
+                await websocket.close(code=1013, reason="Reconnect to resume events")
+                break
             if reader_task in done:
                 # Reader ends only on disconnect (exception); stop sending.
                 break
@@ -310,5 +356,6 @@ async def project_socket(websocket: WebSocket, project_id: str) -> None:
         pass  # client went away mid-send
     finally:
         manager.detach_sink(project_id, sink)
-        for task in (reader_task, queue_get):
+        for task in (reader_task, queue_get, overflow_task):
             task.cancel()
+        await asyncio.gather(reader_task, queue_get, overflow_task, return_exceptions=True)
