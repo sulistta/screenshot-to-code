@@ -18,7 +18,6 @@ pub struct Reply {
     pub text: String,
     pub calls: Vec<Call>,
     pub raw: Value,
-    pub cost: f64,
 }
 #[derive(Clone)]
 pub struct Call {
@@ -384,7 +383,6 @@ pub fn parse(p: &Provider, raw: &Value) -> Result<Reply> {
         return Err("Provider returned neither text nor tool calls".into());
     }
     Ok(Reply {
-        cost: cost(p, raw),
         text,
         calls,
         raw: message,
@@ -483,46 +481,6 @@ pub async fn test_provider(state: tauri::State<'_, AppState>, request: Value) ->
         }
         Err(error) => Ok(json!({"ok":false,"error":error,"models":models})),
     }
-}
-
-fn cost(provider: &Provider, raw: &Value) -> f64 {
-    let prices: Value =
-        serde_json::from_str(include_str!("pricing.json")).expect("bundled pricing");
-    let price = &prices[&provider.model];
-    let number = |v: &Value| v.as_f64().unwrap_or(0.0);
-    let usage = &raw["usage"];
-    let (input, output, read, write) = match provider.kind.as_str() {
-        "anthropic" => (
-            number(&usage["input_tokens"]),
-            number(&usage["output_tokens"]),
-            number(&usage["cache_read_input_tokens"]),
-            number(&usage["cache_creation_input_tokens"]),
-        ),
-        "gemini" => {
-            let u = &raw["usageMetadata"];
-            let cached = number(&u["cachedContentTokenCount"]);
-            (
-                (number(&u["promptTokenCount"]) - cached).max(0.0),
-                number(&u["candidatesTokenCount"]) + number(&u["thoughtsTokenCount"]),
-                cached,
-                0.0,
-            )
-        }
-        _ => {
-            let cached = number(&usage["input_tokens_details"]["cached_tokens"]);
-            (
-                (number(&usage["input_tokens"]) - cached).max(0.0),
-                number(&usage["output_tokens"]),
-                cached,
-                0.0,
-            )
-        }
-    };
-    (input * number(&price["input"])
-        + output * number(&price["output"])
-        + read * number(&price["cache_read"])
-        + write * number(&price["cache_write"]))
-        / 1_000_000.0
 }
 
 #[cfg(test)]

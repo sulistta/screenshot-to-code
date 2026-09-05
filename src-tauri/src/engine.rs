@@ -21,7 +21,6 @@ struct Run {
     images: Vec<String>,
     // A shared request ceiling bounds the entire team, not each specialist.
     requests: Arc<std::sync::atomic::AtomicUsize>,
-    cost: Arc<Mutex<f64>>,
 }
 impl Run {
     fn emit(&self, mut value: Value, agent: &str) -> Result<()> {
@@ -310,14 +309,10 @@ async fn agent_loop(
         {
             return Err("The team's 48-request limit was reached. Partial work is saved.".into());
         }
-        if *run.cost.lock().map_err(|_| "Budget unavailable")? >= 3.0 {
-            return Err("The run reached its $3 model budget. Partial work is saved.".into());
-        }
         let emit = |event| {
             let _ = run.emit(event, agent);
         };
         let reply = tokio::select! { _=run.cancel.cancelled()=>return Err("Cancelled".into()), value=providers::request(&run.state,provider,system,&messages,&definitions,&emit)=>value? };
-        *run.cost.lock().map_err(|_| "Budget unavailable")? += reply.cost;
 
         if reply.calls.is_empty() {
             return Ok(reply.text);
@@ -526,7 +521,6 @@ pub async fn start_run(
         cancel,
         images,
         requests: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
-        cost: Arc::new(Mutex::new(0.0)),
     };
     run.emit(
         json!({"type":"user_message","text":text,"images":run.images}),
@@ -625,7 +619,6 @@ mod tests {
             cancel: CancellationToken::new(),
             images: vec![],
             requests: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
-            cost: Arc::new(Mutex::new(0.0)),
         };
         (directory, run)
     }
