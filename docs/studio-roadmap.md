@@ -126,6 +126,9 @@ Full-stack execution groundwork:
 - Full-stack preview wired into the workbench: package.json-bearing
   projects get Start/Stop app controls and render through the project
   gateway when running, with installing/crashed states surfaced.
+- Draft recovery closed end to end: failed/cancelled runs announce
+  `draftAvailable` on the terminal event and the handoff card offers
+  one-click restore of the partial work into the live preview.
 
 ## Verification
 

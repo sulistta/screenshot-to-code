@@ -16,6 +16,8 @@ export interface RunOutcome {
   status: StudioRunStatus;
   iterationId: string | null;
   filesChanged: string[];
+  /** A recoverable draft was saved for this run's partial work. */
+  draftAvailable: boolean;
   config: {
     primary_model: string;
     subagent_model: string;
@@ -244,6 +246,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
               status,
               iterationId: event.iterationId ?? null,
               filesChanged: event.filesChanged ?? [],
+              draftAvailable: event.draftAvailable ?? false,
               config: state.currentRunConfig,
             },
             transcript:

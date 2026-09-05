@@ -337,6 +337,10 @@ async def test_manager_cancel_keeps_partial_workspace(
     drafts = store.list_drafts(meta.id)
     assert len(drafts) == 1
     assert drafts[0]["files"] == ["index.html"]
+    # The terminal event tells the UI a recoverable draft exists.
+    terminal = manager.journal.read(meta.id)[-1]
+    assert terminal["status"] == "cancelled"
+    assert terminal["draftAvailable"] is True
 
 
 @pytest.mark.asyncio

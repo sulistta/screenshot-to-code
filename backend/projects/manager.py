@@ -449,6 +449,7 @@ class ProjectRunManager:
                 logger.exception("Could not persist the coordinator record for %s", run_id)
             files_changed: List[str] = []
             iteration_id: Optional[str] = None
+            draft_saved = False
             def persistence_failed(operation: str) -> None:
                 nonlocal status, error_message, assistant_reply
                 logger.exception("Could not persist %s for run %s", operation, run_id)
@@ -492,6 +493,7 @@ class ProjectRunManager:
                 # draft, never the live version.
                 try:
                     self.store.save_draft(project_id, run_id, workspace)
+                    draft_saved = True
                 except Exception:
                     persistence_failed("the run draft")
             try:
@@ -525,6 +527,7 @@ class ProjectRunManager:
                     "filesChanged": files_changed,
                     "message": assistant_reply,
                     "error": error_message,
+                    "draftAvailable": draft_saved,
                 },
             )
 

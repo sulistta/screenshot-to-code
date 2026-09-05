@@ -118,6 +118,7 @@ export interface StudioRunEvent {
     primary_model: string;
     subagent_model: string;
   };
+  draftAvailable?: boolean;
 }
 
 export type StudioRunStatus =

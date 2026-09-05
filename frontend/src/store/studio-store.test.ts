@@ -134,6 +134,21 @@ describe("studio store event handling", () => {
     expect(useStudioStore.getState().activity).toHaveLength(1);
   });
 
+  it("marks recoverable drafts on failed runs", () => {
+    const { handleEvent } = useStudioStore.getState();
+    handleEvent({
+      type: "run_status", status: "cancelled", runId: "r1",
+      draftAvailable: true,
+    });
+    expect(useStudioStore.getState().lastOutcome).toMatchObject({
+      status: "cancelled", draftAvailable: true,
+    });
+    handleEvent({ type: "run_status", status: "failed", runId: "r2" });
+    expect(useStudioStore.getState().lastOutcome).toMatchObject({
+      status: "failed", draftAvailable: false,
+    });
+  });
+
   it("tracks the team lifecycle with identity and states", () => {
     const { handleEvent } = useStudioStore.getState();
     handleEvent({ type: "agent_status", agentId: "coordinator", name: "Nora", role: "coordinator", status: "working", objective: "Build it" });

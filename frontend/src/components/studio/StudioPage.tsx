@@ -17,6 +17,7 @@ import type { StudioActivityItem } from "@/store/studio-store";
 import ModelPicker from "@/components/studio/ModelPicker";
 import { modelDisplayName } from "@/components/studio/modelOptions";
 import type { StudioProject } from "@/types/studio";
+import { projectRequest } from "@/lib/projectApi";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -239,9 +240,26 @@ function ConfigBar({ project }: { project: StudioProject }) {
   );
 }
 
-function RunHandoff() {
-  const { lastOutcome, iterations, previewNonce } = useStudioStore();
+function RunHandoff({ projectId }: { projectId: string }) {
+  const { lastOutcome, iterations, bumpPreview } = useStudioStore();
+  const [recovering, setRecovering] = useState(false);
+  const [recovered, setRecovered] = useState(false);
   if (!lastOutcome) return null;
+
+  const recoverDraft = async () => {
+    if (!lastOutcome.runId || recovering) return;
+    setRecovering(true);
+    try {
+      await projectRequest(projectId, `drafts/${lastOutcome.runId}/restore`, {});
+      useStudioStore.getState().setError(null);
+      setRecovered(true);
+      bumpPreview();
+    } catch (error) {
+      useStudioStore.getState().setError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRecovering(false);
+    }
+  };
 
   if (lastOutcome.status === "completed") {
     const iteration =
@@ -271,7 +289,6 @@ function RunHandoff() {
         <div className="text-muted-foreground/80">
           Continue below — describe a change, give feedback, or inspect the
           preview.
-          {previewNonce < 0 ? "" : ""}
         </div>
       </div>
     );
@@ -279,20 +296,48 @@ function RunHandoff() {
 
   if (lastOutcome.status === "cancelled" || lastOutcome.status === "stuck") {
     return (
-      <div className="rounded-md bg-secondary px-3 py-2.5 text-xs text-muted-foreground">
+      <div className="rounded-md bg-secondary px-3 py-2.5 text-xs text-muted-foreground space-y-2">
         {lastOutcome.status === "cancelled"
           ? "Stopped. The work written so far is kept — continue whenever you're ready."
           : "The agent repeated itself without progress and was stopped. Try rephrasing the request."}
+        {recovered ? (
+          <div className="text-emerald-700 dark:text-emerald-400">
+            Partial work restored to the preview.
+          </div>
+        ) : lastOutcome.draftAvailable && lastOutcome.runId ? (
+          <div>
+            <Button size="sm" variant="outline" className="h-7 text-xs"
+              disabled={recovering}
+              onClick={() => { void recoverDraft(); }}>
+              {recovering ? "Restoring…" : "Restore partial work to the preview"}
+            </Button>
+          </div>
+        ) : null}
       </div>
     );
   }
 
   return (
-    <div className="rounded-md bg-destructive/[0.07] px-3 py-2.5 text-xs">
-      <span className="font-medium text-destructive">Failed.</span>{" "}
-      <span className="text-muted-foreground">
-        See the error above for details about what failed.
-      </span>
+    <div className="rounded-md bg-destructive/[0.07] px-3 py-2.5 text-xs space-y-2">
+      <div>
+        <span className="font-medium text-destructive">Failed.</span>{" "}
+        <span className="text-muted-foreground">
+          See the error above for details about what failed.
+        </span>
+      </div>
+      {recovered ? (
+        <div className="text-emerald-700 dark:text-emerald-400">
+          Partial work restored to the preview.
+        </div>
+      ) : lastOutcome.draftAvailable && lastOutcome.runId ? (
+        <div>
+          <Button size="sm" variant="outline" className="h-7 text-xs"
+            disabled={recovering}
+            onClick={() => { void recoverDraft(); }}>
+            {recovering ? "Restoring…" : "Restore partial work to the preview"}
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -579,7 +624,7 @@ function ConversationColumn({
               <ActivityItem key={item.id} item={item} />
             ))}
           </div>
-          <RunHandoff />
+          <RunHandoff projectId={projectId} />
           <TeamPanel working={working} />
           <QuestionCard send={send} />
         </div>
