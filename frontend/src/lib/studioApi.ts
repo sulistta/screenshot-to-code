@@ -169,7 +169,7 @@ export function appUrl(projectId: string): string {
 export function projectSocketUrl(projectId: string): string {
   const wsBase = import.meta.env.VITE_WS_BACKEND_URL || "";
   const httpBase = import.meta.env.VITE_HTTP_BACKEND_URL || "";
-  // Mirror the existing generate-code socket: default to same-origin so the
+  // Default to same-origin so the
   // Vite dev proxy handles routing in dev.
   if (!wsBase && !httpBase) {
     const proto = window.location.protocol === "https:" ? "wss" : "ws";

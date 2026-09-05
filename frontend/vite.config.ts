@@ -19,7 +19,6 @@ export default ({ mode }) => {
       // Route backend traffic through the frontend origin so the app works
       // via tunnels/preview URLs (no hardcoded localhost from the browser).
       proxy: {
-        "/generate-code": { target: CODEGEN_BACKEND, ws: true },
         "/api": { target: CODEGEN_BACKEND },
         "/local-assets": { target: CODEGEN_BACKEND },
         "/workspace": { target: CODEGEN_BACKEND, ws: true },

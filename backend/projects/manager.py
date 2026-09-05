@@ -870,7 +870,6 @@ async def build_run_prompts(
         image_generation_enabled=bool(
             request.settings.get("isImageGenerationEnabled", True)
         ),
-        design_system=request.settings.get("designSystem"),
         system_prompt_override=STUDIO_SYSTEM_PROMPT,
     )
     if not chat_history:
