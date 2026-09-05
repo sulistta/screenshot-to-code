@@ -7,6 +7,7 @@ import { getServicesStatus, openPreview, listIterations, startServices, stopServ
 import { FileDifference, getFiles, editFile, revisionDiff, restoreRevision, exportProject } from "@/lib/projectApi";
 import { loadPreference, savePreference } from "@/lib/draftPreferences";
 import ProjectTools from "./ProjectTools";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 const SourceEditor = lazy(() => import("./SourceEditor"));
 
 type View = "preview" | "code" | "history" | "compare";
@@ -73,10 +74,9 @@ function useFileDraft(projectId: string, path: string) {
  * supported preview entry point.
  */
 export function PreviewWindowButton({ projectId, compact }: { projectId: string; compact?: boolean }) {
-  const nonce = useStudioStore((state) => state.previewNonce);
   const setError = useStudioStore((state) => state.setError);
   const files = useQuery({
-    queryKey: ["files", projectId, nonce],
+    queryKey: ["files", projectId],
     queryFn: () => getFiles(projectId),
   });
   const hasEntry = Boolean(files.data?.files["index.html"]);
@@ -96,16 +96,27 @@ export function PreviewWindowButton({ projectId, compact }: { projectId: string;
           .finally(() => setBusy(false));
       }}
     >
-      {busy ? "Opening…" : "Abrir preview em janela"} {!compact && <FiArrowUpRight aria-hidden className="inline-block" />}
+      {busy ? "Opening…" : "Open preview window"} {!compact && <FiArrowUpRight aria-hidden className="inline-block" />}
     </button>
   );
 }
 export default function StudioWorkbench({ projectId, view, onViewChange }: { projectId: string; view?: View; onViewChange?: (v: View) => void }) {
-  const [internalView, setInternalView] = useState<View>("preview");
+  const [internalView, setInternalView] = useState<View>(() => {
+    const saved = sessionStorage.getItem(`workbench-view:${projectId}`);
+    return saved === "code" || saved === "history" || saved === "compare" ? saved : "preview";
+  });
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [codeVisited, setCodeVisited] = useState(internalView === "code");
   const currentView = view ?? internalView;
-  const setView = onViewChange ?? setInternalView;
+  const setView = (next: View) => {
+    (onViewChange ?? setInternalView)(next);
+    if (next === "code") setCodeVisited(true);
+    sessionStorage.setItem(`workbench-view:${projectId}`, next);
+    setToolsOpen(false);
+  };
   const [width, setWidth] = useState("fluid");
-  const [path, setPath] = useState("index.html");
+  const [path, updatePath] = useState(() => sessionStorage.getItem(`workbench-path:${projectId}`) ?? "index.html");
+  const setPath = (next: string) => { updatePath(next); sessionStorage.setItem(`workbench-path:${projectId}`, next); };
   const { draft, updateDraft, discardDraft } = useFileDraft(projectId, path);
   const [busy, setBusy] = useState(false);
   const [newPath, setNewPath] = useState("");
@@ -121,15 +132,17 @@ export default function StudioWorkbench({ projectId, view, onViewChange }: { pro
   const nonce = useStudioStore((state) => state.previewNonce);
   const runStatus = useStudioStore((state) => state.runStatus);
   const transcript = useStudioStore((state) => state.transcript);
-  const activity = useStudioStore((state) => state.activity);
-  const team = useStudioStore((state) => state.team);
   const setError = useStudioStore((state) => state.setError);
   const bumpPreview = useStudioStore((state) => state.bumpPreview);
   const queryClient = useQueryClient();
-  const files = useQuery({ queryKey: ["files", projectId, nonce],
+  const files = useQuery({ queryKey: ["files", projectId],
     queryFn: () => getFiles(projectId) });
-  const versions = useQuery({ queryKey: ["versions", projectId, nonce],
+  const versions = useQuery({ queryKey: ["versions", projectId],
     queryFn: () => listIterations(projectId) });
+  useEffect(() => {
+    void queryClient.invalidateQueries({ queryKey: ["files", projectId] });
+    void queryClient.invalidateQueries({ queryKey: ["versions", projectId] });
+  }, [nonce, projectId, queryClient]);
   const isAppProject = Boolean(files.data?.files["package.json"]);
   const services = useQuery({
     queryKey: ["services", projectId],
@@ -174,44 +187,37 @@ export default function StudioWorkbench({ projectId, view, onViewChange }: { pro
     sandbox="allow-scripts allow-forms allow-downloads"
     src={previewUrl} className="forge-preview-frame" />;
   const fileCount = Object.keys(files.data?.files ?? {}).length;
-  const teamCount = Object.keys(team).length;
 
   return <div className="workbench min-h-0">
-    <div className="flex items-center justify-between gap-2 pb-3">
-      <div className="forge-tabs !border-0" role="tablist" aria-label="Workspace view">
-        {(["preview", "compare", "code", "history"] as View[]).map((item) =>
-          <button key={item} role="tab" aria-selected={currentView === item} onClick={() => setView(item)} className="!py-2">
-            {item === "code" ? "Files" : item[0].toUpperCase() + item.slice(1)}</button>)}
+    <div className="result-heading">
+      <div className="result-views" role="group" aria-label="Workspace view">
+        <button aria-pressed={currentView === "preview" || currentView === "compare"} onClick={() => setView("preview")}>Preview</button>
+        <button aria-pressed={currentView === "code"} onClick={() => setView("code")}>Code</button>
+        {currentView === "history" && <span className="text-xs text-stone-500">History</span>}
       </div>
-      <div className="flex items-center gap-2">
-        <ProjectTools projectId={projectId} />
-        <button
-          className="text-[12px] font-medium text-stone-500 hover:text-stone-900 dark:text-zinc-400 disabled:opacity-40"
-          disabled={busy}
-          title="Saves the project as a ZIP archive"
-          onClick={() => execute(async () => {
-            const saved = await exportProject(projectId);
-            // false means the native save dialog was cancelled: stay silent.
-            setToolNotice(saved ? "Archive exported" : "");
-          })}
-        >Export ZIP</button>
-        {toolNotice && <span role="status" className="text-[11.5px] text-stone-400">{toolNotice}</span>}
-      </div>
-    </div>
-
-    {(currentView === "preview" || currentView === "compare") && (
-      <div className="forge-card overflow-hidden">
-        <div className="forge-preview-tools flex items-center justify-between gap-2 px-4 py-2.5 border-b border-stone-200/70 dark:border-zinc-800">
-          <span className="flex items-center gap-2 text-[11px] font-medium tracking-wide text-stone-500 dark:text-zinc-400 uppercase">
-            <span className="forge-dot" /> {runStatus === "running" ? "Live Preview (generating…)" : "Live Preview"}
-          </span>
-          <span className="flex items-center gap-3">
+      <Popover open={toolsOpen} onOpenChange={setToolsOpen}>
+        <PopoverTrigger asChild><button aria-label="Result options" className="result-options">···</button></PopoverTrigger>
+        <PopoverContent align="end" className="result-menu">
+          <button onClick={() => setView("history")}>Version history</button>
+          <button onClick={() => setView("compare")}>Compare reference</button>
+          <PreviewWindowButton projectId={projectId} compact />
+          <button disabled={busy} onClick={() => execute(async () => { const saved = await exportProject(projectId); setToolNotice(saved ? "Archive exported" : ""); })}>Export ZIP</button>
             <label className="flex items-center gap-1.5 text-[11.5px] text-stone-500 dark:text-zinc-400">
               Auto-refresh
               <button role="switch" aria-label="Auto-refresh preview" aria-checked={autoRefresh} onClick={() => setAutoRefresh(!autoRefresh)} className={`w-8 h-[18px] rounded-full p-[2px] transition-colors ${autoRefresh ? "bg-stone-900 dark:bg-white" : "bg-stone-200 dark:bg-zinc-700"}`}>
                 <span className={`block w-[14px] h-[14px] rounded-full bg-white dark:bg-black transition-transform ${autoRefresh ? "translate-x-[14px]" : ""}`} style={autoRefresh ? undefined : { background: "#fff" }} />
               </button>
             </label>
+          <ProjectTools projectId={projectId} />
+        </PopoverContent>
+      </Popover>
+      {toolNotice && <span role="status" className="text-xs">{toolNotice}</span>}
+    </div>
+
+    <div className="result-preview" hidden={currentView !== "preview" && currentView !== "compare"}>
+        <div className="forge-preview-tools flex items-center justify-between gap-2 px-4 py-2.5 border-b border-stone-200/70 dark:border-zinc-800">
+
+          <span className="flex items-center gap-3">
             <label className="hidden sm:flex items-center gap-1 text-[11.5px] text-stone-500">
               <span className="sr-only">Viewport</span>
               <select value={width} onChange={(event) => setWidth(event.target.value)} className="forge-select !py-1 !px-2 !text-[11.5px]">
@@ -239,38 +245,28 @@ export default function StudioWorkbench({ projectId, view, onViewChange }: { pro
                 className={`text-[11.5px] px-2 py-1 rounded-md ${inspecting ? "bg-blue-50 text-blue-700" : "text-stone-500 hover:text-stone-900"}`}
               >{inspecting ? "Exit selection" : "Select element"}</button>
             )}
-            {hasWebPreview && !appRunning && <PreviewWindowButton projectId={projectId} compact />}
           </span>
         </div>
 
-        <div className="bg-[#ececee] dark:bg-black/40 p-3 sm:p-4">
-          {files.isLoading ? <p role="status" className="py-16 text-center text-[13px] text-stone-400">Loading project…</p> : files.error ?
+        <div className="result-canvas">
+          {files.isLoading ? <p role="status" className="py-16 text-center text-[13px] text-stone-400">Loading project…</p> : files.error && !files.data ?
             <div role="alert" className="py-16 text-center text-[13px]">Could not load files. <button className="underline" onClick={() => files.refetch()}>Retry</button></div> :
             !fileCount ? <div className="bg-white dark:bg-zinc-900 rounded-xl py-16 px-6 text-center">
               <div className="text-[26px] font-bold tracking-tight">Preview</div>
-              <p className="mt-2 text-[12.5px] text-stone-400">Your project preview will appear here<br />during the build phase.</p>
+              <p className="mt-2 text-[12.5px] text-stone-400">Your result will appear here when it is saved.</p>
             </div> : appRunning || hasWebPreview ? <div className={`mx-auto bg-white rounded-xl overflow-hidden border border-stone-200/60 ${currentView === "compare" && comparison === "side" && reference ? "relative" : "relative"}`}
               style={{ width: width === "fluid" ? "100%" : `min(100%, ${width}px)` }}>
-              <div className="flex items-center gap-1.5 px-3 py-2 border-b border-stone-100">
-                <span className="w-2 h-2 rounded-full bg-stone-300" /><span className="w-2 h-2 rounded-full bg-stone-300" /><span className="w-2 h-2 rounded-full bg-stone-300" />
-                <span className="ml-2 text-[11px] text-stone-400 truncate">{services.data?.url ?? "preview"}</span>
-              </div>
               <div className={`relative ${currentView === "compare" && comparison === "side" && reference ? "grid grid-cols-2" : ""}`} style={{ minHeight: 380 }}>
                 {staticPreview}
                 {currentView === "compare" && reference && (
                   <img src={reference} alt="Design reference" className={comparison === "overlay" ? "absolute inset-0 pointer-events-none" : "border-t border-stone-100"}
                     style={comparison === "overlay" ? { opacity: opacity / 100, objectFit: "contain" } : undefined} />
                 )}
-                {runStatus === "running" && (
-                  <div className="absolute left-3 right-3 bottom-3 flex items-center gap-3 rounded-xl bg-white/95 dark:bg-zinc-900/95 border border-stone-200 dark:border-zinc-700 px-3.5 py-3 shadow-lg">
-                    <span className="h-6 w-6 rounded-full border-2 border-blue-200 border-t-blue-600 animate-spin shrink-0" />
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-[12.5px] font-medium">Building your site…</span>
-                      <span className="block text-[11.5px] text-stone-500 truncate">Assembling pages, optimizing assets, and finalizing styles…</span>
-                    </span>
-                  </div>
-                )}
+
               </div>
+            </div> : !isAppProject ? <div className="p-8 text-center text-sm text-stone-500">
+              <p>These files do not have a web preview yet.</p>
+              <button className="forge-btn-secondary mt-3" onClick={() => setView("code")}>View code</button>
             </div> : <div className="bg-white dark:bg-zinc-900 rounded-xl py-14 px-6 text-center">
               <p className="text-[15px] font-medium">This project runs as an app.</p>
               <p className="mt-1 text-[12.5px] text-stone-500">Start it to install dependencies and launch its services.</p>
@@ -306,33 +302,9 @@ export default function StudioWorkbench({ projectId, view, onViewChange }: { pro
           {runStatus === "running" && <span role="status" className="ml-auto shrink-0">Working · showing saved files</span>}
         </div>
       </div>
-    )}
 
-    {(currentView === "preview" || currentView === "compare") && (
-      <div className="mt-3 grid gap-3">
-        <div className="forge-card px-4 py-3.5">
-          <div className="flex items-center justify-between">
-            <span className="forge-eyebrow">Execution summary</span>
-            <button className="text-[11.5px] text-stone-500" onClick={() => setView("history")}>View details →</button>
-          </div>
-          <div className="mt-2.5 grid grid-cols-3 gap-3 text-[12px]">
-            <div><div className="text-stone-400">Conversation</div><div className="text-[14px] font-semibold">{transcript.length ? `${transcript.length} messages` : "—"}</div></div>
-            <div><div className="text-stone-400">Team</div><div className="text-[14px] font-semibold">{teamCount ? `${teamCount} agent${teamCount > 1 ? "s" : ""}` : "Ready"}</div></div>
-            <div><div className="text-stone-400">Files</div><div className="text-[14px] font-semibold">{fileCount || "—"}</div></div>
-          </div>
-        </div>
-        <div className="forge-card px-4 py-3.5">
-          <div className="forge-eyebrow">Live activity</div>
-          <div className="mt-2 space-y-1.5 max-h-36 overflow-auto forge-console text-stone-500 dark:text-zinc-400">
-            {activity.length === 0 ? <p className="font-sans text-[12px]">No live events. Start a run to watch agents work.</p> :
-              activity.slice(-8).map((item) => <div key={item.id} className="truncate">○ {item.toolDetail || item.text || item.toolName}</div>)}
-          </div>
-        </div>
-      </div>
-    )}
-
-    {currentView === "code" && <div className="forge-card overflow-hidden">
-      <div className="code-workspace min-h-[420px]">
+    {codeVisited && <div hidden={currentView !== "code"} className="result-code">
+      <div className="code-workspace min-h-0">
         <div className="file-list !border-r-stone-200/70" aria-label="Project files">
           <form onSubmit={(event) => {
             event.preventDefault();
@@ -368,7 +340,7 @@ export default function StudioWorkbench({ projectId, view, onViewChange }: { pro
         </div>
       </div>
     </div>}
-    {currentView === "history" && <div className="forge-card p-5">
+    {currentView === "history" && <div className="history-workspace p-4 overflow-auto">
       <h2 className="text-[16px] font-semibold">Version history</h2><p className="text-[12.5px] text-stone-500">Restore creates a new version. Earlier versions stay available.</p>
       {versions.isLoading && <p className="mt-3 text-[12.5px]">Loading versions…</p>}
       {versions.data?.length === 0 && <p className="mt-3 text-[12.5px]">Your first saved version will appear here.</p>}
@@ -377,7 +349,7 @@ export default function StudioWorkbench({ projectId, view, onViewChange }: { pro
           <div><strong className="text-[13px]">{version.label}</strong><time className="block mt-0.5 text-[11.5px] text-stone-400">{new Date(version.created_at).toLocaleString()}</time>
             <p className="mt-1.5 text-[12.5px] text-stone-600 dark:text-zinc-300">{version.summary}</p></div>
           <div className="mt-2.5 flex gap-2 items-center flex-wrap text-[12px]">
-            <button className="forge-btn-secondary !py-1.5 disabled:opacity-40" disabled={busy} title="Opens this version in the isolated preview window" onClick={() => execute(() => openPreview(projectId, version.id))}>Abrir preview em janela</button>
+            <button className="forge-btn-secondary !py-1.5 disabled:opacity-40" disabled={busy} title="Opens this version in the isolated preview window" onClick={() => execute(() => openPreview(projectId, version.id))}>Open preview window</button>
             <button className="forge-btn-secondary !py-1.5" onClick={() => execute(async () => {
               const result = await revisionDiff(projectId, version.id);
               setDifference(result.changes);

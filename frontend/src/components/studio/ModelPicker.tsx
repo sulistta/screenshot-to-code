@@ -14,6 +14,7 @@ interface ModelPickerProps {
   label: string;
   placeholder?: string;
   settings: Settings | null;
+  disabled?: boolean;
 }
 
 export default function ModelPicker({
@@ -22,6 +23,7 @@ export default function ModelPicker({
   label,
   placeholder,
   settings,
+  disabled = false,
 }: ModelPickerProps) {
   const [open, setOpen] = useState(false);
   const [entries, setEntries] = useState<ModelOption[]>([]);
@@ -63,6 +65,8 @@ export default function ModelPicker({
       <PopoverTrigger asChild>
         <button
           ref={triggerRef}
+          disabled={disabled}
+          aria-label={`${label} model: ${currentLabel}`}
           className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 -mx-1.5 text-[11px] text-foreground/80 hover:bg-secondary transition-colors"
           title={`${label} model`}
         >
@@ -108,7 +112,7 @@ export default function ModelPicker({
                   }}
                 >
                   <span className="truncate">
-                    {option.value ? modelDisplayName(option.value) : "Best available"}
+                    {option.value ? modelDisplayName(option.value) : placeholder ?? "Best available"}
                   </span>
                   {selected && (
                     <IoCheckmarkSharp className="h-3.5 w-3.5 shrink-0 text-emerald-600" />

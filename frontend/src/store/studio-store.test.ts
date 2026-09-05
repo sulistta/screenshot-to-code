@@ -204,3 +204,21 @@ it("does not duplicate the reply when the terminal event replays", () => {
   const { transcript } = useStudioStore.getState();
   expect(transcript.filter((m) => m.role === "assistant")).toHaveLength(1);
 });
+
+it("keeps completed run details, clears the next team and deduplicates replay", () => {
+  const store = useStudioStore;
+  store.getState().setActiveProject("detail-project");
+  store.getState().handleEvent({ type: "run_status", projectId: "detail-project", runId: "r1", status: "running", streamId: "detail-project", sequence: 1 });
+  store.getState().handleEvent({ type: "agent_status", runId: "r1", agentId: "worker", name: "Builder", status: "working", streamId: "detail-project", sequence: 2 });
+  store.getState().handleEvent({ type: "tool_start", runId: "r1", name: "spawn_agent", eventId: "call", streamId: "detail-project", sequence: 3 });
+  const completed = { type: "run_status" as const, projectId: "detail-project", runId: "r1", status: "completed", filesChanged: ["index.html"], message: "Done", streamId: "detail-project", sequence: 4 };
+  store.getState().handleEvent(completed);
+  store.getState().handleEvent(completed);
+  expect(store.getState().completedRuns).toHaveLength(1);
+  expect(store.getState().completedRuns[0].team.worker.name).toBe("Builder");
+  expect(store.getState().completedRuns[0].activity).toHaveLength(1);
+  expect(store.getState().transcript).toHaveLength(1);
+  store.getState().handleEvent({ type: "run_status", runId: "r2", status: "running", streamId: "detail-project", sequence: 5 });
+  expect(store.getState().team).toEqual({});
+  expect(store.getState().completedRuns[0].filesChanged).toEqual(["index.html"]);
+});

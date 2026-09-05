@@ -491,10 +491,9 @@ pub async fn start_run(
             return Err("Restore the project before starting a run".into());
         }
         let context = format!(
-            "Project: {}\nBrief: {}\nStack preference: {}\nConversation: {}\nRequest: {}",
+            "Project: {}\nBrief: {}\nConversation: {}\nRequest: {}",
             doc.project.name,
             doc.project.brief,
-            settings["generatedCodeConfig"],
             json!(doc.transcript.iter().rev().take(20).collect::<Vec<_>>()),
             text
         );

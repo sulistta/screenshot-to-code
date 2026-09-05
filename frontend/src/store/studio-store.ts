@@ -37,7 +37,16 @@ export interface StudioActivityItem {
   agentName?: string;
 }
 
+export interface RunDetail {
+  runId: string;
+  status: StudioRunStatus;
+  activity: StudioActivityItem[];
+  team: Record<string, StudioAgent>;
+  filesChanged: string[];
+}
+
 interface StudioState {
+  completedRuns: RunDetail[];
   projects: StudioProject[];
   activeProjectId: string | null;
   transcript: StudioTranscriptMessage[];
@@ -103,6 +112,7 @@ function asAgentStatus(value: unknown): StudioAgentStatus {
 }
 
 export const useStudioStore = create<StudioState>((set, get) => ({
+  completedRuns: [],
   projects: [],
   activeProjectId: null,
   transcript: [],
@@ -131,6 +141,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   setActiveProject: (projectId) =>
     set({
       activeProjectId: projectId,
+      completedRuns: [],
       transcript: [],
       activity: [],
       team: {},
@@ -218,7 +229,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           currentRunId: event.runId ?? state.currentRunId,
           currentRunConfig: event.config ?? state.currentRunConfig,
           lastOutcome: null,
-          ...(newRun ? { activity: [], error: null } : {}),
+          ...(newRun ? { activity: [], team: {}, error: null } : {}),
         });
       }
       set((state) => {
@@ -240,6 +251,10 @@ export const useStudioStore = create<StudioState>((set, get) => ({
             );
           return {
             runStatus: status,
+            completedRuns: event.runId ? [
+              ...state.completedRuns.filter((run) => run.runId !== event.runId),
+              { runId: event.runId, status, activity: state.activity, team: state.team, filesChanged: event.filesChanged ?? [] },
+            ] : state.completedRuns,
             activeQuestion: null,
             lastOutcome: {
               runId: event.runId ?? null,

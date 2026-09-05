@@ -28,6 +28,7 @@ const provider = http.createServer(async (request, response) => {
   }
   let raw = ''; for await (const chunk of request) raw += chunk;
   const body = JSON.parse(raw);
+  assert.ok(!JSON.stringify(body.messages).includes("Stack preference:"), "legacy stack preference must not reach the model");
   if (body.model === 'slow') return;
   const specialist = body.messages[0].content.includes('specialist implementing');
   const results = body.messages.filter(m => m.role === 'tool');
@@ -58,7 +59,7 @@ let driverLogs = '';
 const skips = [];
 const sanitize = text => String(text).replace(/(apiKey|authorization|x-api-key|x-goog-api-key)(["':\s]+)([^\s"',}]+)/gi, '$1$2[redacted]');
 const wd = async (method, suffix, body) => {
-  const response = await fetch(`http://127.0.0.1:${driverPort}${suffix}`, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const response = await fetch(`http://127.0.0.1:${driverPort}${suffix}`, { method, signal: AbortSignal.timeout(90000), headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
   const result = await response.json(); if (!response.ok) throw new Error(JSON.stringify(result.value)); return result.value;
 };
 const script = (source, args = []) => wd('POST', `/session/${session}/execute/sync`, { script: source, args });
@@ -117,9 +118,10 @@ try {
   driver = spawn('tauri-driver', ['--port', String(driverPort), '--native-port', '4458'], {
     env: runtimeEnv, stdio: ['ignore', 'pipe', 'pipe'],
   });
-  driver.stdout.on('data', data => { driverLogs += data; }); driver.stderr.on('data', data => { driverLogs += data; });
+  driver.stdout.on('data', data => { driverLogs += data; }); driver.stderr.on('data', data => { driverLogs += data; void writeFile('artifacts/native-driver.log', sanitize(driverLogs)); });
   driver.on('error', error => { console.error(error); });
   await until(async () => { try { return await fetch(`http://127.0.0.1:${driverPort}/status`).then(r => r.ok); } catch { return false; } }, 'WebDriver startup');
+  console.log('Opening native WebView…');
   const result = await wd('POST', '/session', { capabilities: { alwaysMatch: { 'tauri:options': { application: path.resolve('src-tauri/target/debug/screenshot-to-code') } } } });
   session = result.sessionId;
   await wd('POST', `/session/${session}/timeouts`, { script: 30000, pageLoad: 60000, implicit: 1000 });
@@ -182,7 +184,7 @@ try {
 
   await step('project creation through the composer', async () => {
     await fillField('[aria-label="Project brief"]', 'Native smoke');
-    await clickText('button', 'Create Project →');
+    await script(`document.querySelector('[aria-label="Create project"]').click()`);
     const created = await until(async () => {
       const found = await script('return document.querySelector("h1")?.textContent');
       return found === 'Native smoke' ? found : null;
@@ -200,22 +202,38 @@ try {
     assert.match((await ipcResult('edit_file', { projectId, path: '../escape', content: 'bad', revision: initial.revision })).error, /relative|portable/);
     assert.match((await ipcResult('edit_file', { projectId, path: 'notes.md', content: 'stale', revision: initial.revision })).error, /changed/);
     const settings = { primaryModel: 'custom:test', subagentModel: 'custom:test', customProviders: [{ id: 'test', enabled: true, baseUrl: providerBase, protocol: 'chat_completions', apiKey: null, headers: {}, models: [{ id: 'test', name: 'Test' }] }], activeCustomProviderId: 'test' };
-    const runId = await ipc('start_run', { projectId, text: 'ask first, then build', images: [], settings });
+    await fillField('[aria-label="Message"]', 'Keep my next change');
+    await clickText('button', 'Settings', '.forge-sidebar');
+    const runId = await ipc('start_run', { projectId, text: 'ask first, then build', images: [], settings: { ...settings, generatedCodeConfig: 'legacy-ignored' } });
     await until(() => script('return [...document.querySelectorAll("button")].some(b=>b.textContent.trim()==="Blue")'), 'question via IPC channel');
-    await script('[...document.querySelectorAll("button")].find(b=>b.textContent.trim()==="Blue").click()');
+    assert.equal(await script(`return document.querySelector('[aria-label="Message"]').value`), 'Keep my next change');
+    await shot('/tmp/forge-settings-running.png');
+    await clickText('button', 'Close', '[role="dialog"]');
+    await shot('/tmp/forge-question.png');
+    await clickText('button', 'Blue');
     await until(async () => (await ipc('get_transcript', { projectId })).some(m => m.role === 'assistant' && m.runId === runId), 'generation completion');
     const files = await ipc('get_files', { projectId });
     assert.match(files.files['index.html'], /Native generation passed/);
     assert.equal(files.files['notes.md'], 'Native persistence');
     const versions = await ipc('list_iterations', { projectId }); assert.equal(versions.length, 2);
-    await until(() => script('return !!document.querySelector("iframe")'), 'preview iframe');
+    await until(() => script('return !!document.querySelector(".layout-split iframe")'), 'adaptive preview reveal');
+    assert.equal(await script(`return document.querySelector('[aria-label="Message"]').value`), 'Keep my next change');
+    await shot('/tmp/forge-workspace.png');
+    await clickText('button', 'Conversation');
+    assert.equal(await script('return !!document.querySelector(".layout-conversation")'), true);
+    await clickText('button', 'Show result');
+    await clickText('button', 'Details');
+    await until(() => script('return document.querySelector(".run-details")?.textContent.includes("Builder")'), 'completed agent details');
+    await shot('/tmp/forge-details.png');
+    await clickText('button', 'Close', '[role="dialog"]');
     return { runId };
   });
 
   await step('isolated preview window', async () => {
     const handles = await wd('GET', `/session/${session}/window/handles`);
-    await until(() => script('return [...document.querySelectorAll("button")].some(b=>b.textContent.trim()==="Abrir preview em janela"&&b.offsetParent!==null)'), 'preview control');
-    await clickText('button', 'Abrir preview em janela');
+    await script(`document.querySelector('[aria-label="Result options"]').click()`);
+    await until(() => script('return [...document.querySelectorAll("button")].some(b=>b.textContent.trim()==="Open preview window"&&b.offsetParent!==null)'), 'preview control');
+    await clickText('button', 'Open preview window');
     const preview = await until(async () => (await wd('GET', `/session/${session}/window/handles`)).find(h => !handles.includes(h)), 'isolated preview window');
     await wd('POST', `/session/${session}/window`, { handle: preview });
     assert.equal(await script('return document.querySelector("h1")?.textContent'), 'Native generation passed');

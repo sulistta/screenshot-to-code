@@ -235,3 +235,6 @@
     @apply bg-background text-foreground m-0;
   }
 }
+
+/* The native workspace owns its scroll regions. */
+html, body { overflow-x: clip; }

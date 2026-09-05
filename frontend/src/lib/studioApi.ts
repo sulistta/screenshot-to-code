@@ -1,4 +1,5 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
+import type { RunSettings } from "./runSettings";
 import { native } from "./native";
 import type { StudioProject, StudioTranscriptMessage, StudioIteration } from "@/types/studio";
 export const listProjects = () => native<StudioProject[]>("list_projects");
@@ -8,7 +9,7 @@ export const updateProject = (projectId: string, patch: Partial<Pick<StudioProje
   native<StudioProject>("update_project", { projectId, patch });
 export const listIterations = (projectId: string) => native<StudioIteration[]>("list_iterations", { projectId });
 export const getTranscript = (projectId: string) => native<StudioTranscriptMessage[]>("get_transcript", { projectId });
-export const startRun = (projectId: string, text: string, settings: Record<string, unknown>, images: string[] = []) =>
+export const startRun = (projectId: string, text: string, settings: RunSettings, images: string[] = []) =>
   native<string>("start_run", { projectId, text, settings, images });
 export const cancelRun = (projectId: string) => native<void>("cancel_run", { projectId });
 export const workspaceUrl = (projectId: string) => convertFileSrc(`${projectId}/current/index.html`, "preview");

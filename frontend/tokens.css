@@ -1,12 +1,27 @@
-/* Forge reference palette and motion tokens. */
+/* Forge · shared neutral surfaces, system typography and purposeful motion. */
 :root {
   --forge-paper: #fdfdfd;
   --forge-sidebar: #f3f3f2;
+  --forge-surface: #fff;
+  --forge-soft: #f6f6f5;
   --forge-ink: #18191f;
+  --forge-muted: #686971;
   --forge-border: #e5e5e9;
   --forge-focus: #64748b;
-  --forge-danger: #c42b3a;
+  --forge-danger: #b42338;
   --forge-white: #fff;
+  --forge-accent: #496a60;
+  --forge-on-accent: #fff;
+  --font-body: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --space-2xl: 32px;
+  --radius-control: 8px;
+  --radius-panel: 16px;
   --dur-fast: 140ms;
   --dur-enter: 220ms;
   --ease-out: cubic-bezier(.2,.8,.2,1);
@@ -14,9 +29,15 @@
   --ease-in-out: cubic-bezier(.4,0,.2,1);
 }
 .dark {
-  --forge-paper: #101114;
-  --forge-sidebar: #16171b;
+  --forge-paper: #111215;
+  --forge-sidebar: #17181c;
+  --forge-surface: #1b1c21;
+  --forge-soft: #222329;
   --forge-ink: #f4f4f5;
+  --forge-muted: #a4a5af;
   --forge-border: #303138;
   --forge-focus: #a5b4fc;
+  --forge-danger: #f58c9a;
+  --forge-accent: #9dbeb0;
+  --forge-on-accent: #17241e;
 }

@@ -1,4 +1,4 @@
-import { FiLink, FiBox, FiPlay, FiSettings } from "react-icons/fi";
+import { FiLink, FiSettings } from "react-icons/fi";
 import React, { useEffect, useState } from "react";
 import { BsCheckCircleFill, BsExclamationTriangleFill } from "react-icons/bs";
 import { AppTheme, Settings } from "../../types";
@@ -6,7 +6,6 @@ import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import { native } from "@/lib/native";
 import ProvidersSection from "./ProvidersSection";
-import { Stack } from "@/lib/stacks";
 import type { ModelOption } from "@/components/studio/modelOptions";
 import { modelDisplayName } from "@/components/studio/modelOptions";
 
@@ -25,23 +24,11 @@ interface Props {
   appThemeMeta: PersistMeta;
 }
 
-type SettingsSection = "providers" | "models" | "execution" | "general";
-
+type SettingsSection = "providers" | "general";
 const SECTIONS: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
   { id: "providers", label: "Providers", icon: <FiLink aria-hidden /> },
-  { id: "models", label: "Models", icon: <FiBox aria-hidden /> },
-  { id: "execution", label: "Execution", icon: <FiPlay aria-hidden /> },
-  { id: "general", label: "General", icon: <FiSettings aria-hidden /> },
+  { id: "general", label: "Preferences", icon: <FiSettings aria-hidden /> },
 ];
-
-const STACK_LABEL: Record<string, string> = {
-  [Stack.HTML_TAILWIND]: "Build (Full Stack)",
-  [Stack.HTML_CSS]: "Build (Static)",
-  [Stack.REACT_TAILWIND]: "Build (React)",
-  [Stack.BOOTSTRAP]: "Build (Bootstrap)",
-  [Stack.VUE_TAILWIND]: "Build (Vue)",
-  [Stack.IONIC_TAILWIND]: "Build (Ionic)",
-};
 
 function SettingsTab({ settings, setSettings, settingsMeta, appTheme, setAppTheme, appThemeMeta }: Props) {
   const [screenshotPreviewAvailable, setScreenshotPreviewAvailable] = useState<
@@ -69,7 +56,7 @@ function SettingsTab({ settings, setSettings, settingsMeta, appTheme, setAppThem
     <div className="flex-1 min-w-0">
       <div className="mb-5">
         <h1 className="text-[26px] font-bold tracking-tight">Settings</h1>
-        <p className="mt-0.5 text-[13px] text-stone-500 dark:text-zinc-400">Configure providers, models, and execution defaults for your self-hosted instance.</p>
+        <p className="mt-0.5 text-[13px] text-stone-500 dark:text-zinc-400">Connect your models and make Forge feel like yours.</p>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-6 items-start">
@@ -112,20 +99,18 @@ function SettingsTab({ settings, setSettings, settingsMeta, appTheme, setAppThem
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <h2 className="text-[15px] font-semibold">Providers</h2>
-                  <p className="text-[12.5px] text-stone-500">Connect and manage model providers for your self-hosted deployment.</p>
+                  <p className="text-[12.5px] text-stone-500">Connect the providers you want to use.</p>
                 </div>
               </div>
               <div className="mt-4">
                 <ProvidersSection settings={settings} setSettings={setSettings} />
               </div>
+              <details className="mt-5"><summary className="cursor-pointer text-sm">Available models</summary><div className="mt-3"><ModelsSection /></div></details>
             </div>
-          )}
-          {section === "models" && <ModelsSection />}
-          {section === "execution" && (
-            <ExecutionSection settings={settings} setSettings={setSettings} />
           )}
           {section === "general" && (
             <div className="space-y-4">
+              <div className="forge-card p-5"><label className="flex items-center gap-2 text-sm"><input type="checkbox" aria-label="Image generation" checked={settings.isImageGenerationEnabled} onChange={(event) => setSettings((s) => ({ ...s, isImageGenerationEnabled: event.target.checked }))} />Allow image generation</label><p className="mt-2 text-xs text-stone-500">The agent chooses the technology from your request and existing project.</p></div>
               <GeneralSection appTheme={appTheme} setAppTheme={setAppTheme} settings={settings} setSettings={setSettings} settingsMeta={settingsMeta} appThemeMeta={appThemeMeta} />
               <IntegrationsSection
                 screenshotPreviewAvailable={screenshotPreviewAvailable}
@@ -184,34 +169,6 @@ function ModelsSection() {
           </tbody>
         </table>
       </div>
-    </div>
-  );
-}
-
-function ExecutionSection({ settings, setSettings }: Pick<Props, "settings" | "setSettings">) {
-  return (
-    <div className="forge-card p-5">
-      <h2 className="text-[15px] font-semibold">Execution</h2>
-      <p className="text-[12.5px] text-stone-500">Generation stack for new projects and whether the agent may produce images. Model selection stays per project (“Best available” resolves at run start).</p>
-      <div className="mt-4 grid sm:grid-cols-2 gap-3">
-        <label className="flex flex-col gap-1.5 text-[12px] text-stone-500">Generation stack
-          <span className="forge-select w-full"><select aria-label="Generation stack" value={settings.generatedCodeConfig} onChange={(e) => setSettings((s) => ({ ...s, generatedCodeConfig: e.target.value as Stack }))}>
-            {Object.values(Stack).map((s) => <option key={s} value={s}>{STACK_LABEL[s] ?? s}</option>)}
-          </select></span>
-        </label>
-        <label className="flex items-center gap-2 text-[12.5px] pt-6">
-          <input
-            type="checkbox"
-            aria-label="Image generation"
-            checked={settings.isImageGenerationEnabled}
-            onChange={(event) =>
-              setSettings((s) => ({ ...s, isImageGenerationEnabled: event.target.checked }))
-            }
-            className="h-4 w-4 accent-stone-900"
-          /> Image generation
-        </label>
-      </div>
-      <p className="mt-3 text-[11.5px] text-stone-400">When image generation is on, the agent may create images for the project; when off, it skips image work.</p>
     </div>
   );
 }

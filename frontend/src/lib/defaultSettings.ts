@@ -1,5 +1,4 @@
 import { EditorTheme, Settings } from "@/types";
-import { Stack } from "@/lib/stacks";
 
 /** Defaults for the persisted studio settings. */
 export const DEFAULT_SETTINGS: Settings = {
@@ -9,7 +8,6 @@ export const DEFAULT_SETTINGS: Settings = {
   replicateApiKey: null,
   isImageGenerationEnabled: true,
   editorTheme: EditorTheme.COBALT,
-  generatedCodeConfig: Stack.HTML_TAILWIND,
   customProviders: [],
   activeCustomProviderId: null,
 };

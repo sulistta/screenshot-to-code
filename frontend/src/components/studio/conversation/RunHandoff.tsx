@@ -33,34 +33,9 @@ export function RunHandoff({ projectId }: { projectId: string }) {
   if (lastOutcome.status === "completed") {
     const iteration =
       iterations.find((it) => it.id === lastOutcome.iterationId) ?? null;
-    return (
-      <div className="rounded-xl border border-emerald-200/70 bg-emerald-50/60 dark:border-emerald-900/40 dark:bg-emerald-950/20 px-3.5 py-3 text-xs space-y-1">
-        <div className="font-medium text-stone-900 dark:text-zinc-100">
-          ✓ {iteration?.label ?? "Completed"}
-          {iteration ? (
-            <span className="ml-2 font-normal text-stone-500">
-              saved as {iteration.id}
-            </span>
-          ) : null}
-        </div>
-        {lastOutcome.filesChanged.length > 0 && (
-          <div className="text-stone-500 dark:text-zinc-400">
-            Changed{" "}
-            {lastOutcome.filesChanged
-              .slice(0, 4)
-              .map((f) => f.split("/").pop())
-              .join(", ")}
-            {lastOutcome.filesChanged.length > 4
-              ? ` +${lastOutcome.filesChanged.length - 4} more`
-              : ""}
-          </div>
-        )}
-        <div className="text-stone-400">
-          Continue below — describe a change, give feedback, or inspect the
-          preview.
-        </div>
-      </div>
-    );
+    return <p className="run-completion" role="status">✓ Saved{iteration ? " as a new version" : ""}
+      {lastOutcome.filesChanged.length > 0 ? ` · ${lastOutcome.filesChanged.length} files changed` : ""}
+    </p>;
   }
 
   if (lastOutcome.status === "cancelled" || lastOutcome.status === "stuck") {
@@ -91,7 +66,7 @@ export function RunHandoff({ projectId }: { projectId: string }) {
       <div>
         <span className="font-medium text-red-600">Failed.</span>{" "}
         <span className="text-stone-500 dark:text-zinc-400">
-          See the error above for details about what failed.
+          Review the error details and try again. Your request is still in the conversation.
         </span>
       </div>
       {recovered ? (

@@ -1,4 +1,3 @@
-import { Stack } from "./lib/stacks";
 
 export enum EditorTheme {
   ESPRESSO = "espresso",
@@ -40,7 +39,6 @@ export interface Settings {
   replicateApiKey: string | null;
   isImageGenerationEnabled: boolean;
   editorTheme: EditorTheme;
-  generatedCodeConfig: Stack;
   anthropicApiKey: string | null;
   geminiApiKey: string | null;
 }

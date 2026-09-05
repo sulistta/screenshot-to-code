@@ -2,6 +2,7 @@ export interface PendingPrompt {
   text: string;
   images: string[];
   savedAt: number;
+  error?: string;
 }
 
 const keyFor = (projectId: string) => `pending-prompt:${projectId}`;
@@ -27,6 +28,7 @@ export function loadPendingPrompt(projectId: string): PendingPrompt | null {
     if (typeof parsed.text !== "string" || !Array.isArray(parsed.images)) return null;
     return {
       text: parsed.text,
+      error: typeof parsed.error === "string" ? parsed.error : undefined,
       images: parsed.images.filter((item): item is string => typeof item === "string"),
       savedAt: typeof parsed.savedAt === "number" ? parsed.savedAt : 0,
     };
