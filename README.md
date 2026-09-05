@@ -6,7 +6,12 @@ Convert screenshots, mockups, Figma designs, and screen recordings into clean, f
 https://github.com/user-attachments/assets/ec08a5e6-9606-41c5-b03a-1bf47dfeba75
 
 
-Supported stacks:
+The local app is a **Studio**: durable projects with a conversation, an
+agent team (a coordinator that plans and delegates, plus specialists that
+write the code), versioned history, and live previews — from static pages to
+runnable full-stack apps.
+
+Supported generation stacks:
 
 - HTML + Tailwind
 - HTML + CSS
@@ -14,6 +19,11 @@ Supported stacks:
 - Vue + Tailwind
 - Bootstrap
 - Ionic + Tailwind
+
+Generated full-stack projects (detected from `package.json`/lockfiles) run
+through a service supervisor and, on Linux with Bubblewrap and a systemd user
+session, inside a sandboxed process group with a cleared environment and
+resource limits.
 
 Default AI models:
 
@@ -91,6 +101,14 @@ pnpm dev
 Open http://localhost:5173 to use the app.
 
 If you prefer to run the backend on a different port, update `VITE_WS_BACKEND_URL` in `frontend/.env.local`.
+
+#### Sandbox (optional, Linux only)
+
+Full-stack projects run inside a sandboxed process group when
+[Bubblewrap](https://github.com/containers/bubblewrap) (`bwrap`) and a
+systemd user session are available; the supervisor probes this at startup
+and falls back to running services directly with a cleared environment
+otherwise. Set `STUDIO_DISABLE_SANDBOX=1` to force the fallback.
 
 ## Docker
 
