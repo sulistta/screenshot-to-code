@@ -58,10 +58,21 @@ try {
   const result = await wd('POST', '/session', { capabilities: { alwaysMatch: { 'tauri:options': { application: path.resolve('src-tauri/target/debug/screenshot-to-code') } } } });
   session = result.sessionId;
   await wd('POST', `/session/${session}/timeouts`, { script: 30000, pageLoad: 60000, implicit: 1000 });
-  await until(() => script('return document.body.textContent.includes("A space for your next idea")'), 'Studio startup');
+  await until(() => script(`return !!document.querySelector('[aria-label="Project brief"]')`), 'Studio startup');
+  assert.equal(await ipc('plugin:window|is_decorated', { label: 'main' }), false);
+  await script('document.documentElement.classList.remove("dark"); document.body.classList.remove("dark")');
+  await writeFile('/tmp/forge-home.png', Buffer.from(await wd('GET', `/session/${session}/screenshot`), 'base64'));
+  await wd('POST', `/session/${session}/window/rect`, { width: 800, height: 600 });
+  assert.equal(await script('return getComputedStyle(document.querySelector(".forge-sidebar")).display !== "none"'), true);
+  await writeFile('/tmp/forge-home-800.png', Buffer.from(await wd('GET', `/session/${session}/screenshot`), 'base64'));
+  await wd('POST', `/session/${session}/window/rect`, { width: 1440, height: 940 });
+  // Xvfb has no window manager; validate the native permission without relying on a resize event.
+  await ipc('plugin:window|toggle_maximize', { label: 'main' });
+  await ipc('plugin:window|toggle_maximize', { label: 'main' });
   const project = await ipc('create_project', { name: 'Native smoke', brief: 'IPC test' });
   await script('window.location.hash = arguments[0]', [`/projects/${project.id}`]);
-  await until(() => script('return !!document.querySelector("textarea")'), 'project navigation');
+  await until(() => script('return !!document.querySelector("textarea") && document.querySelector("h1")?.textContent === "Native smoke"'), 'project navigation');
+  await writeFile('/tmp/forge-project.png', Buffer.from(await wd('GET', `/session/${session}/screenshot`), 'base64'));
   const initial = await ipc('get_files', { projectId: project.id });
   await ipc('edit_file', { projectId: project.id, path: 'notes.md', content: 'Native persistence', revision: initial.revision });
   assert.match((await ipcResult('edit_file', { projectId: project.id, path: '../escape', content: 'bad', revision: initial.revision })).error, /relative|portable/);

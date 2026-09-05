@@ -1,9 +1,14 @@
+import { FiLink, FiBox, FiPlay, FiSettings } from "react-icons/fi";
 import React, { useEffect, useState } from "react";
 import { BsCheckCircleFill, BsExclamationTriangleFill } from "react-icons/bs";
 import { AppTheme, Settings } from "../../types";
 import { Input } from "../ui/input";
+import { Button } from "../ui/button";
 import { native } from "@/lib/native";
 import ProvidersSection from "./ProvidersSection";
+import { Stack } from "@/lib/stacks";
+import type { ModelOption } from "@/components/studio/modelOptions";
+import { modelDisplayName } from "@/components/studio/modelOptions";
 
 interface Props {
   settings: Settings;
@@ -12,20 +17,29 @@ interface Props {
   setAppTheme: React.Dispatch<React.SetStateAction<AppTheme>>;
 }
 
-type SettingsSection = "general" | "providers" | "generation" | "integrations";
+type SettingsSection = "providers" | "models" | "execution" | "general";
 
-const SECTIONS: { id: SettingsSection; label: string }[] = [
-  { id: "general", label: "General" },
-  { id: "providers", label: "Providers" },
-  { id: "generation", label: "Generation" },
-  { id: "integrations", label: "Integrations" },
+const SECTIONS: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
+  { id: "providers", label: "Providers", icon: <FiLink aria-hidden /> },
+  { id: "models", label: "Models", icon: <FiBox aria-hidden /> },
+  { id: "execution", label: "Execution", icon: <FiPlay aria-hidden /> },
+  { id: "general", label: "General", icon: <FiSettings aria-hidden /> },
 ];
 
-function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {  // null = not yet known (loading / unreachable); otherwise the backend's answer.
+const STACK_LABEL: Record<string, string> = {
+  [Stack.HTML_TAILWIND]: "Build (Full Stack)",
+  [Stack.HTML_CSS]: "Build (Static)",
+  [Stack.REACT_TAILWIND]: "Build (React)",
+  [Stack.BOOTSTRAP]: "Build (Bootstrap)",
+  [Stack.VUE_TAILWIND]: "Build (Vue)",
+  [Stack.IONIC_TAILWIND]: "Build (Ionic)",
+};
+
+function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
   const [screenshotPreviewAvailable, setScreenshotPreviewAvailable] = useState<
     boolean | null
   >(null);
-  const [section, setSection] = useState<SettingsSection>("general");
+  const [section, setSection] = useState<SettingsSection>("providers");
 
   useEffect(() => {
     let cancelled = false;
@@ -44,153 +58,170 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) { 
   }, []);
 
   return (
-    <div className="flex-1 overflow-hidden">
-      <div className="flex h-full flex-col px-4 py-4 lg:px-6 lg:py-6">
-        {/* Header */}
-        <div className="mb-4">
-          <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Settings
-          </h1>
+    <div className="flex-1 min-w-0">
+      <div className="mb-5">
+        <h1 className="text-[26px] font-bold tracking-tight">Settings</h1>
+        <p className="mt-0.5 text-[13px] text-stone-500 dark:text-zinc-400">Configure providers, models, and execution defaults for your self-hosted instance.</p>
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-6 items-start">
+        <nav className="hidden sm:flex w-44 shrink-0 flex-col gap-1" aria-label="Settings sections">
+          {SECTIONS.map((entry) => (
+            <button
+              key={entry.id}
+              onClick={() => setSection(entry.id)}
+              aria-current={section === entry.id ? "page" : undefined}
+              className={`flex items-center gap-2.5 rounded-[10px] px-3 py-2 text-left text-[13px] transition-colors ${
+                section === entry.id
+                  ? "bg-stone-200/70 dark:bg-zinc-800 font-medium text-stone-900 dark:text-white"
+                  : "text-stone-500 dark:text-zinc-400 hover:bg-stone-100 dark:hover:bg-zinc-800/50"
+              }`}
+            >
+              <span className="text-[13px]">{entry.icon}</span>
+              {entry.label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="sm:hidden mb-3 w-full">
+          <select
+            aria-label="Settings section"
+            value={section}
+            onChange={(event) => setSection(event.target.value as SettingsSection)}
+            className="forge-select w-full"
+          >
+            {SECTIONS.map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {entry.label}
+              </option>
+            ))}
+          </select>
         </div>
 
-        <div className="flex min-h-0 flex-1 gap-8">
-          {/* Section navigation */}
-          <nav className="hidden w-40 shrink-0 flex-col gap-1 sm:flex">
-            {SECTIONS.map((entry) => (
-              <button
-                key={entry.id}
-                onClick={() => setSection(entry.id)}
-                className={`rounded-md px-3 py-2 text-left text-sm transition-colors ${
-                  section === entry.id
-                    ? "bg-gray-100 font-medium text-gray-900 dark:bg-zinc-800 dark:text-white"
-                    : "text-gray-500 hover:bg-gray-50 hover:text-gray-700 dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-200"
-                }`}
-              >
-                {entry.label}
-              </button>
-            ))}
-          </nav>
-
-          {/* Mobile section switcher */}
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pb-6">
-            <div className="mb-4 sm:hidden">
-              <select
-                aria-label="Settings section"
-                value={section}
-                onChange={(event) => setSection(event.target.value as SettingsSection)}
-                className="w-full rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
-              >
-                {SECTIONS.map((entry) => (
-                  <option key={entry.id} value={entry.id}>
-                    {entry.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="max-w-2xl">
-              {section === "general" && (
-                <GeneralSection
-                  settings={settings}
-                  setSettings={setSettings}
-                  appTheme={appTheme}
-                  setAppTheme={setAppTheme}
-                />
-              )}
-              {section === "providers" && (
+        <div className="flex-1 min-w-0 space-y-4">
+          {section === "providers" && (
+            <div className="forge-card p-5">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-[15px] font-semibold">Providers</h2>
+                  <p className="text-[12.5px] text-stone-500">Connect and manage model providers for your self-hosted deployment.</p>
+                </div>
+              </div>
+              <div className="mt-4">
                 <ProvidersSection settings={settings} setSettings={setSettings} />
-              )}
-              {section === "generation" && (
-                <GenerationSection
-                  settings={settings}
-                  setSettings={setSettings}
-                />
-              )}
-              {section === "integrations" && (
-                <IntegrationsSection
-                  screenshotPreviewAvailable={screenshotPreviewAvailable}
-                  settings={settings}
-                  setSettings={setSettings}
-                />
-              )}
+              </div>
             </div>
-          </div>
+          )}
+          {section === "models" && <ModelsSection />}
+          {section === "execution" && (
+            <ExecutionSection settings={settings} setSettings={setSettings} />
+          )}
+          {section === "general" && (
+            <div className="space-y-4">
+              <GeneralSection appTheme={appTheme} setAppTheme={setAppTheme} settings={settings} setSettings={setSettings} />
+              <IntegrationsSection
+                screenshotPreviewAvailable={screenshotPreviewAvailable}
+                settings={settings}
+                setSettings={setSettings}
+              />
+            </div>
+          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function ModelsSection() {
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [loading, setLoading] = useState(false);
+  const load = () => {
+    setLoading(true);
+    native<ModelOption[]>("list_models").then(setModels).catch(() => undefined).finally(() => setLoading(false));
+  };
+  useEffect(load, []);
+  return (
+    <div className="forge-card p-5">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <h2 className="text-[15px] font-semibold">Models</h2>
+          <p className="text-[12.5px] text-stone-500">View and manage models from your configured providers.</p>
+        </div>
+        <Button variant="outline" size="sm" className="rounded-[9px]" onClick={load} disabled={loading}>⟳ {loading ? "Refreshing…" : "Refresh Models"}</Button>
+      </div>
+      <div className="mt-4 overflow-x-auto rounded-xl border border-stone-200/70 dark:border-zinc-800">
+        <table className="w-full text-[12.5px]">
+          <thead>
+            <tr className="bg-stone-50 dark:bg-zinc-800/50 text-left text-stone-500">
+              <th className="px-3.5 py-2.5 font-medium">Model</th>
+              <th className="px-3.5 py-2.5 font-medium">Provider</th>
+              <th className="px-3.5 py-2.5 font-medium">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {models.length === 0 && <tr><td colSpan={3} className="px-3.5 py-4 text-stone-400">No models reported. Configure a provider first.</td></tr>}
+            {models.map((m) => (
+              <tr key={`${m.group}:${m.value}`} className="border-t border-stone-100 dark:border-zinc-800">
+                <td className="px-3.5 py-2.5 font-medium">{modelDisplayName(m.value) || m.value}</td>
+                <td className="px-3.5 py-2.5 text-stone-500">{m.group}</td>
+                <td className="px-3.5 py-2.5"><span className="forge-status green"><span className="forge-dot" /> Available</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function ExecutionSection({ settings, setSettings }: Pick<Props, "settings" | "setSettings">) {
+  return (
+    <div className="forge-card p-5">
+      <h2 className="text-[15px] font-semibold">Execution Defaults</h2>
+      <p className="text-[12.5px] text-stone-500">Set the default models and execution mode for new projects and agents.</p>
+      <div className="mt-4 grid sm:grid-cols-3 gap-3">
+        <label className="flex flex-col gap-1.5 text-[12px] text-stone-500">Primary model
+          <span className="forge-select w-full"><select aria-label="Default stack" value={settings.generatedCodeConfig} onChange={(e) => setSettings((s) => ({ ...s, generatedCodeConfig: e.target.value as Stack }))}>
+            {Object.values(Stack).map((s) => <option key={s} value={s}>{STACK_LABEL[s] ?? s}</option>)}
+          </select></span>
+        </label>
+        <label className="flex items-center gap-2 text-[12.5px] pt-6">
+          <input
+            type="checkbox"
+            aria-label="Image generation"
+            checked={settings.isImageGenerationEnabled}
+            onChange={(event) =>
+              setSettings((s) => ({ ...s, isImageGenerationEnabled: event.target.checked }))
+            }
+            className="h-4 w-4 accent-stone-900"
+          /> Placeholder images
+        </label>
+      </div>
+      <p className="mt-3 text-[11.5px] text-stone-400">These defaults apply to new projects. You can override them per project or agent at any time.</p>
     </div>
   );
 }
 
 function GeneralSection({ appTheme, setAppTheme }: Props) {
   return (
-    <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
-      <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
-        <h2 className="text-sm font-medium text-gray-900 dark:text-white">
-          Theme
-        </h2>
-      </div>
-      <div className="divide-y divide-gray-100 dark:divide-zinc-700">
-        <div className="flex items-center justify-between px-4 py-3">
-          <div>
-            <span className="text-sm text-gray-700 dark:text-zinc-300">
-              App Theme
-            </span>
-            <p className="mt-0.5 text-xs text-gray-500 dark:text-zinc-400">
-              System default, with optional light/dark override
-            </p>
-          </div>
-          <select
-            name="app-theme"
-            aria-label="App theme"
-            value={appTheme}
-            onChange={(event) => setAppTheme(event.target.value as AppTheme)}
-            className="w-[140px] rounded-md border border-input bg-transparent px-2 py-1.5 text-sm"
-          >
-            <option value={AppTheme.SYSTEM}>System</option>
-            <option value={AppTheme.LIGHT}>Light</option>
-            <option value={AppTheme.DARK}>Dark</option>
-          </select>
+    <div className="forge-card p-5">
+      <h2 className="text-[15px] font-semibold">General</h2>
+      <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-stone-200/70 dark:border-zinc-800 px-4 py-3">
+        <div>
+          <span className="text-[13px] font-medium">App Theme</span>
+          <p className="mt-0.5 text-[12px] text-stone-500">System default, with optional light/dark override</p>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function GenerationSection({
-  settings,
-  setSettings,
-}: Pick<Props, "settings" | "setSettings">) {
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
-      <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
-        <h2 className="text-sm font-medium text-gray-900 dark:text-white">
-          Image Generation
-        </h2>
-      </div>
-      <div className="p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm text-gray-700 dark:text-zinc-300">
-              Placeholder Images
-            </p>
-            <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
-              More fun with it but if you want to save money, turn it off.
-            </p>
-          </div>
-          <input
-            type="checkbox"
-            id="image-generation"
-            aria-label="Image generation"
-            checked={settings.isImageGenerationEnabled}
-            onChange={(event) =>
-              setSettings((s) => ({
-                ...s,
-                isImageGenerationEnabled: event.target.checked,
-              }))
-            }
-            className="h-4 w-4 accent-emerald-600"
-          />
-        </div>
+        <select
+          name="app-theme"
+          aria-label="App theme"
+          value={appTheme}
+          onChange={(event) => setAppTheme(event.target.value as AppTheme)}
+          className="forge-select"
+        >
+          <option value={AppTheme.SYSTEM}>System</option>
+          <option value={AppTheme.LIGHT}>Light</option>
+          <option value={AppTheme.DARK}>Dark</option>
+        </select>
       </div>
     </div>
   );
@@ -204,77 +235,47 @@ function IntegrationsSection({
   screenshotPreviewAvailable: boolean | null;
 }) {
   return (
-    <div className="space-y-6">
-      {/* Screenshot Preview (agent self-verification) */}
-      <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
-        <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
-          <h2 className="text-sm font-medium text-gray-900 dark:text-white">
-            Screenshot Preview
-          </h2>
-        </div>
-        <div className="p-4">
+    <div className="space-y-4">
+      <div className="forge-card p-5">
+        <h2 className="text-[15px] font-semibold">Screenshot Preview</h2>
+        <div className="mt-3">
           {screenshotPreviewAvailable === false ? (
-            <div className="flex items-start gap-2.5 rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-700/60 dark:bg-amber-900/20">
+            <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/40 dark:bg-amber-950/20">
               <BsExclamationTriangleFill className="mt-0.5 shrink-0 text-amber-500" />
               <div>
-                <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                  Screenshot preview is unavailable
-                </p>
-                <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-                  Automatic visual verification is not available in this desktop build. Use the project preview to review the result.
-                </p>
+                <p className="text-[13px] font-medium text-amber-800 dark:text-amber-200">Screenshot preview is unavailable</p>
+                <p className="mt-1 text-[12px] text-amber-700 dark:text-amber-300">Automatic visual verification is not available in this desktop build. Use the project preview to review the result.</p>
               </div>
             </div>
           ) : screenshotPreviewAvailable === true ? (
             <div className="flex items-start gap-2.5">
               <BsCheckCircleFill className="mt-0.5 shrink-0 text-emerald-500" />
               <div>
-                <p className="text-sm text-gray-700 dark:text-zinc-300">
-                  Available
-                </p>
-                <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
-                  The agent renders your generated page in a headless browser
-                  to visually check its work and fix layout issues.
-                </p>
+                <p className="text-[13px]">Available</p>
+                <p className="mt-1 text-[12px] text-stone-500">The agent renders your generated page in a headless browser to visually check its work and fix layout issues.</p>
               </div>
             </div>
           ) : (
-            <p className="text-xs text-gray-500 dark:text-zinc-400">
-              Checking available tools…
-            </p>
+            <p className="text-[12px] text-stone-400">Checking available tools…</p>
           )}
         </div>
       </div>
 
-      {/* Replicate (image generation/editing backend) */}
-      {(
-        <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
-          <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
-            <h2 className="text-sm font-medium text-gray-900 dark:text-white">
-              Replicate
-            </h2>
-          </div>
-          <div className="p-4">
-            <p className="text-xs text-gray-500 dark:text-zinc-400">
-              Used for image generation. The key is saved in your operating system’s credential store.
-            </p>
-            <Input
-              id="replicate-api-key"
-              type="password"
-              autoComplete="off"
-              className="mt-3"
-              placeholder="Replicate API key"
-              value={settings.replicateApiKey || ""}
-              onChange={(e) =>
-                setSettings((s) => ({
-                  ...s,
-                  replicateApiKey: e.target.value,
-                }))
-              }
-            />
-          </div>
-        </div>
-      )}
+      <div className="forge-card p-5">
+        <h2 className="text-[15px] font-semibold">Replicate</h2>
+        <p className="mt-1 text-[12px] text-stone-500">Used for image generation. The key is saved in your operating system’s credential store.</p>
+        <Input
+          id="replicate-api-key"
+          type="password"
+          autoComplete="off"
+          className="mt-3 rounded-[10px]"
+          placeholder="Replicate API key"
+          value={settings.replicateApiKey || ""}
+          onChange={(e) =>
+            setSettings((s) => ({ ...s, replicateApiKey: e.target.value }))
+          }
+        />
+      </div>
     </div>
   );
 }

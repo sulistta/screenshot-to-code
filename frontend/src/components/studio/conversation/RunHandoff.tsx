@@ -28,17 +28,17 @@ export function RunHandoff({ projectId }: { projectId: string }) {
     const iteration =
       iterations.find((it) => it.id === lastOutcome.iterationId) ?? null;
     return (
-      <div className="rounded-md bg-emerald-500/[0.07] px-3 py-2.5 text-xs space-y-1.5">
-        <div className="font-medium text-foreground">
+      <div className="rounded-xl border border-emerald-200/70 bg-emerald-50/60 dark:border-emerald-900/40 dark:bg-emerald-950/20 px-3.5 py-3 text-xs space-y-1">
+        <div className="font-medium text-stone-900 dark:text-zinc-100">
           ✓ {iteration?.label ?? "Completed"}
           {iteration ? (
-            <span className="ml-2 font-normal text-muted-foreground">
+            <span className="ml-2 font-normal text-stone-500">
               saved as {iteration.id}
             </span>
           ) : null}
         </div>
         {lastOutcome.filesChanged.length > 0 && (
-          <div className="text-muted-foreground">
+          <div className="text-stone-500 dark:text-zinc-400">
             Changed{" "}
             {lastOutcome.filesChanged
               .slice(0, 4)
@@ -49,7 +49,7 @@ export function RunHandoff({ projectId }: { projectId: string }) {
               : ""}
           </div>
         )}
-        <div className="text-muted-foreground/80">
+        <div className="text-stone-400">
           Continue below — describe a change, give feedback, or inspect the
           preview.
         </div>
@@ -59,7 +59,7 @@ export function RunHandoff({ projectId }: { projectId: string }) {
 
   if (lastOutcome.status === "cancelled" || lastOutcome.status === "stuck") {
     return (
-      <div className="rounded-md bg-secondary px-3 py-2.5 text-xs text-muted-foreground space-y-2">
+      <div className="rounded-xl bg-stone-100 dark:bg-zinc-800/60 px-3.5 py-3 text-xs text-stone-500 dark:text-zinc-400 space-y-2">
         {lastOutcome.status === "cancelled"
           ? "Stopped. The work written so far is kept — continue whenever you're ready."
           : "The agent repeated itself without progress and was stopped. Try rephrasing the request."}
@@ -69,7 +69,7 @@ export function RunHandoff({ projectId }: { projectId: string }) {
           </div>
         ) : lastOutcome.draftAvailable && lastOutcome.runId ? (
           <div>
-            <Button size="sm" variant="outline" className="h-7 text-xs"
+            <Button size="sm" variant="outline" className="h-7 text-xs rounded-lg"
               disabled={recovering}
               onClick={() => { void recoverDraft(); }}>
               {recovering ? "Restoring…" : "Restore partial work to the preview"}
@@ -81,10 +81,10 @@ export function RunHandoff({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div className="rounded-md bg-destructive/[0.07] px-3 py-2.5 text-xs space-y-2">
+    <div className="rounded-xl bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/30 px-3.5 py-3 text-xs space-y-2">
       <div>
-        <span className="font-medium text-destructive">Failed.</span>{" "}
-        <span className="text-muted-foreground">
+        <span className="font-medium text-red-600">Failed.</span>{" "}
+        <span className="text-stone-500 dark:text-zinc-400">
           See the error above for details about what failed.
         </span>
       </div>
@@ -94,7 +94,7 @@ export function RunHandoff({ projectId }: { projectId: string }) {
         </div>
       ) : lastOutcome.draftAvailable && lastOutcome.runId ? (
         <div>
-          <Button size="sm" variant="outline" className="h-7 text-xs"
+          <Button size="sm" variant="outline" className="h-7 text-xs rounded-lg"
             disabled={recovering}
             onClick={() => { void recoverDraft(); }}>
             {recovering ? "Restoring…" : "Restore partial work to the preview"}

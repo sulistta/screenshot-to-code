@@ -1,0 +1,22 @@
+/* Forge reference palette and motion tokens. */
+:root {
+  --forge-paper: #fdfdfd;
+  --forge-sidebar: #f3f3f2;
+  --forge-ink: #18191f;
+  --forge-border: #e5e5e9;
+  --forge-focus: #64748b;
+  --forge-danger: #c42b3a;
+  --forge-white: #fff;
+  --dur-fast: 140ms;
+  --dur-enter: 220ms;
+  --ease-out: cubic-bezier(.2,.8,.2,1);
+  --ease-in: cubic-bezier(.4,0,1,1);
+  --ease-in-out: cubic-bezier(.4,0,.2,1);
+}
+.dark {
+  --forge-paper: #101114;
+  --forge-sidebar: #16171b;
+  --forge-ink: #f4f4f5;
+  --forge-border: #303138;
+  --forge-focus: #a5b4fc;
+}
