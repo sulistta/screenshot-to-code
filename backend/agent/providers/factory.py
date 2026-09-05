@@ -36,6 +36,7 @@ def create_provider_session(
     custom_model_index: int = 0,
     ask_user_enabled: bool = False,
     spawn_agent_enabled: bool = False,
+    orchestrator: bool = False,
     custom_model_id: Optional[str] = None,
 ) -> ProviderSession:
     canonical_tools = canonical_tool_definitions(
@@ -48,6 +49,7 @@ def create_provider_session(
         screenshot_enabled=is_screenshot_preview_available(),
         ask_user_enabled=ask_user_enabled,
         spawn_agent_enabled=spawn_agent_enabled,
+        orchestrator=orchestrator,
     )
 
     if model in OPENAI_MODELS:

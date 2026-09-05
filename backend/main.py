@@ -21,6 +21,7 @@ from routes import (
     custom_providers,
     projects,
     studio,
+    preview,
 )
 from uploaded_assets import configure_uploaded_asset_routes
 from studio_security import BrowserOriginBoundary, allowed_origins
@@ -42,6 +43,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         for project_id in list(manager._active):
             manager.cancel(project_id)
         await asyncio.gather(*tasks, return_exceptions=True)
+    # Supervised project services must not outlive the API process.
+    from routes.preview import supervisor
+
+    for project_id in list(supervisor._runtimes):
+        await supervisor.stop(project_id)
 
 
 app = FastAPI(lifespan=lifespan, openapi_url="/api/v1/openapi.json", docs_url=None, redoc_url=None)
@@ -69,3 +75,4 @@ app.include_router(eval_sets.router)
 app.include_router(custom_providers.router)
 app.include_router(projects.router)
 app.include_router(studio.router)
+app.include_router(preview.router)

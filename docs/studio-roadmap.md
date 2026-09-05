@@ -12,49 +12,100 @@ CRUD, login, basic permissions and uploads. Complete export and local Git.
 
 1. Reliability: atomic workspace publication, immutable iteration files,
    correct content diffs, visible persistence failures, cancellation, event
-   correlation and correct relative preview URLs.
+   correlation and correct relative preview URLs. ✅ (delivered in earlier
+   batches, see below)
 2. Modular foundation: typed versioned contracts, transactional metadata,
-   durable events, revision manifests, verified migration and recovery.
+   durable events, revision manifests, verified migration and recovery. ✅ core
 3. Visual workspace: project routes, onboarding, responsive panels, preview,
-   editor, history and static export.
+   editor, history and static export. ⚠️ partial (workbench, library, history,
+   team panel; onboarding and resizable panels pending)
 4. Native full-stack: supervisor, mandatory sandbox, isolated preview gateway,
-   both templates and both database profiles.
+   both templates and both database profiles. ⚠️ core delivered (supervisor,
+   gateway, templates, manifest detection; sandbox wiring for generated apps
+   and PostgreSQL profile pending)
 5. Visual editing and quality: reference comparison, element selection, tokens,
-   assets, URL/video inputs and verified correction loops.
+   assets, URL/video inputs and verified correction loops. ⚠️ partial
 6. Portability: local Git, import/export, backups, accessibility and performance.
+   ⚠️ partial (ZIP export/import, git checkpoints)
 
-## Current implementation — reliability groundwork
+## Current implementation — delivered in this batch
 
-Implemented, pending final review:
+Reliability and agent foundations:
 
-- Workspace generations written before atomically updating workspace-state.json.
-- Legacy workspace directories remain readable and are retained on first save.
-- Binary assets that cannot be decoded as UTF-8 survive workspace saves.
-- Version files staged separately from metadata and published by rename.
-- JSON records written with atomic replacement and fsync.
-- Existing-file edits and removals included in run diffs.
-- Persistence failures reported as failed runs, with actionable messages.
-- Immediate cancellation finalizes the run; repeated cancellation is ignored.
-- Broken live event consumers cannot fail generation.
-- Stream sequence deduplication, project guards and tool-call correlation.
-- Canonical preview entry URLs preserve relative stylesheet/script paths.
-- Image-only submission, visible user messages and stale-fetch protection.
-- Pyright excludes the local virtualenv rather than analyzing installed packages.
+- Orchestrator architecture (execution modes removed): the project always
+  runs as a coordinator + specialist team. The coordinator's model does NOT
+  write code — it plans, delegates (spawn_agent/spawn_agents), verifies and
+  integrates. Enforcement is layered: an orchestrator toolset without
+  writing/asset tools (read/list/research/ask_user/delegation only), a
+  structural guard in the tool runtime that refuses write calls even if a
+  model insists, and the studio system prompt describing the split.
+  The `auto/single/swarm` execution-mode setting is gone end to end
+  (backend config, routes, store, UI, run records).
+- Shared run budget: coordinator and every specialist spend from one
+  `SharedBudget` pool (`agent/budget.py`); the runtime ceiling checks the pool
+  total, so N subagents no longer each receive a full budget.
+- Durable agent identity: every run persists an `AgentRun` record
+  (`projects/agents.py`) — stable agent id, short human name (Nora ·
+  Coordinator; Theo/Maya/Iris… · role), explicit states (queued, working,
+  verifying, completed, failed, cancelled), objective, files produced,
+  timestamps, summary and error. Restart recovery marks orphaned active
+  agents as cancelled.
+- Team protocol on the wire: `agent_status` lifecycle events and
+  specialist-attributed tool events (`agentId`, `name`, `role`) replace the
+  old lossy `swarm_agent` ping; the coordinator's reply no longer mixes
+  specialist chatter. Frontend store keeps a `team` map and renders a Team
+  panel (identity, state, current action, files, results).
+- Draft vs. last validated version: failed/cancelled runs no longer publish
+  partial files to the live workspace. Partial output goes to a per-run draft
+  (`drafts/<run_id>`), recoverable via `POST /api/v1/projects/{id}/drafts/{run_id}/restore`.
+  Only completed runs publish the workspace and create an iteration.
+- Workspace GC: unreferenced snapshot generations are collected after each
+  publish (keeps pointer + 2 most recent); event journal pruned to the newest
+  1000 events per project, deleted with the project.
+- Durable replay: `attach_sink` replays from the SQLite journal, not memory;
+  reconnects after a backend restart still receive full run history.
+- Edit concurrency: per-project edit lock serializes check-revision +
+  publish in manual file writes and restores (`routes/studio.py`).
+- Cascade cancellation: the run's cancel scope terminates queued specialists;
+  agent records persist their final state.
+
+Full-stack execution groundwork:
+
+- Project manifest (`projects/manifest.py`): template, entry, services with
+  commands/ports/health paths, required env var names, data paths excluded
+  from code snapshots. Detection from workspace files (static-html default;
+  Next.js and React/Vite promoted by package.json).
+- Service supervisor (`projects/supervisor.py`): installs dependencies from
+  lockfiles (no model secrets present), spawns services, pumps bounded logs,
+  probes health, detects crashes, frees everything on stop/shutdown.
+- Preview gateway (`routes/preview.py`): `/api/projects/{id}/app/...` proxies
+  the project's running service on its own origin; control plane stays on
+  separate paths; service status/start/stop endpoints.
+- Versioned templates (`projects/templates.py`): React/Vite + FastAPI (with
+  CRUD, login, permissions and uploads against SQLite) and Next.js, tested
+  for import validity and manifest detection.
 
 ## Remaining constraints
 
-This is the first implementation slice, not completion of the roadmap.
-Events still use an in-memory buffer; durable replay and restart recovery are
-pending. Snapshot generations are retained without garbage collection, increasing
-disk usage. Cancellation still publishes partial files as in the existing product;
-separate draft and last-valid revisions are pending. Native execution isolation,
-preview origin isolation, new UI and full-stack templates are not implemented.
+- Generated full-stack apps do not yet run inside the native sandbox by
+  default; the supervisor currently spawns processes directly. Wiring
+  `NativeSandbox` into the supervisor's spawn path is the next reliability
+  step (env allow-list, tmpfs writes, cgroup limits).
+- PostgreSQL profile, Alembic migrations for the studio database, and
+  migration of legacy document tables into normalized tables are pending.
+- Team history is preserved per run but the UI team panel currently shows
+  the latest run's team; run-scoped team fetch from
+  `GET /api/v1/projects/{id}/runs/{run_id}/agents` is available for the
+  history view.
+- Verification loops (build, health, browser errors, journeys) are not yet
+  part of generation; the supervisor's health probe is the first building
+  block.
+- Frontend still needs: onboarding checks, resizable panels, run-scoped team
+  history view, and the remaining responsive/a11y passes.
 
 ## Verification
 
-The previous implementation batch passed 327 backend tests and frontend lint,
-TypeScript and 5 frontend tests. Additional cancellation, persistence failure,
-event replay, tool correlation and stale-fetch tests are now included.
-Final results are reported in the task response. Pyright has existing repository
-diagnostics; no clean global baseline is claimed. Its final rerun was blocked by
-automatic approval review reporting the account usage limit.
+Backend: 368 tests passing (`poetry run pytest`); pyright holds the
+pre-existing baseline (21 errors / 68 warnings) — every file touched in this
+batch is clean of new diagnostics. Frontend: 12 store tests, lint and build
+clean.

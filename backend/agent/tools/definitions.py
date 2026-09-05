@@ -312,46 +312,63 @@ def canonical_tool_definitions(
     screenshot_enabled: bool = True,
     ask_user_enabled: bool = False,
     spawn_agent_enabled: bool = False,
+    orchestrator: bool = False,
 ) -> List[CanonicalToolDefinition]:
-    tools: List[CanonicalToolDefinition] = [
-        CanonicalToolDefinition(
-            name="create_file",
-            description=(
-                "Create or fully rewrite a file in the workspace. The entry "
-                "page is index.html; create additional files (styles.css, "
-                "main.js, other pages) as needed and reference them from HTML "
-                "with relative URLs. Returns a success message and file "
-                "metadata."
+    """Build the toolset for a run.
+
+    ``orchestrator=True`` selects the coordinator's toolset: no workspace
+    writing or image tools — the coordinator plans, delegates, verifies and
+    communicates. Specialists (and every non-orchestrator run) get the full
+    implementation toolset.
+    """
+    spawn_agent_enabled = spawn_agent_enabled or orchestrator
+    tools: List[CanonicalToolDefinition] = []
+    if not orchestrator:
+        tools.extend(
+            [
+                CanonicalToolDefinition(
+                    name="create_file",
+                    description=(
+                        "Create or fully rewrite a file in the workspace. The entry "
+                        "page is index.html; create additional files (styles.css, "
+                        "main.js, other pages) as needed and reference them from HTML "
+                        "with relative URLs. Returns a success message and file "
+                        "metadata."
+                    ),
+                    parameters=_create_schema(),
+                ),
+                CanonicalToolDefinition(
+                    name="edit_file",
+                    description=(
+                        "Edit a workspace file using exact string replacements. Do not "
+                        "regenerate entire files. Returns a success message plus edit "
+                        "details, including a unified diff and first changed line."
+                    ),
+                    parameters=_edit_schema(),
+                ),
+            ]
+        )
+    tools.extend(
+        [
+            CanonicalToolDefinition(
+                name="read_file",
+                description=(
+                    "Read the full content of a workspace file. Use before editing "
+                    "a file you did not just write, and to inspect sibling files."
+                ),
+                parameters=_read_file_schema(),
             ),
-            parameters=_create_schema(),
-        ),
-        CanonicalToolDefinition(
-            name="edit_file",
-            description=(
-                "Edit a workspace file using exact string replacements. Do not "
-                "regenerate entire files. Returns a success message plus edit "
-                "details, including a unified diff and first changed line."
+            CanonicalToolDefinition(
+                name="list_files",
+                description=(
+                    "List every file in the workspace with its size. Use to "
+                    "understand project structure before editing."
+                ),
+                parameters=_list_files_schema(),
             ),
-            parameters=_edit_schema(),
-        ),
-        CanonicalToolDefinition(
-            name="read_file",
-            description=(
-                "Read the full content of a workspace file. Use before editing "
-                "a file you did not just write, and to inspect sibling files."
-            ),
-            parameters=_read_file_schema(),
-        ),
-        CanonicalToolDefinition(
-            name="list_files",
-            description=(
-                "List every file in the workspace with its size. Use to "
-                "understand project structure before editing."
-            ),
-            parameters=_list_files_schema(),
-        ),
-    ]
-    if image_generation_enabled:
+        ]
+    )
+    if image_generation_enabled and not orchestrator:
         tools.append(
             CanonicalToolDefinition(
                 name="generate_images",
@@ -455,12 +472,11 @@ def canonical_tool_definitions(
                 name="spawn_agent",
                 description=(
                     "Delegate one self-contained unit of work to a specialist "
-                    "subagent that runs in parallel with its own context. Use "
-                    "for genuinely separable work (asset production, an "
-                    "isolated component, a review pass) — not as a default. "
-                    "The subagent sees only the files you scope to it plus "
-                    "your brief, and returns a summary when done. Scopes of "
-                    "concurrent subagents must not overlap."
+                    "subagent that runs with its own context and full "
+                    "implementation tools. The subagent sees only the files "
+                    "you scope to it plus your brief, and returns a summary "
+                    "when done. Scopes of concurrent subagents must not "
+                    "overlap."
                 ),
                 parameters=_spawn_agent_schema(),
             )
@@ -489,4 +505,12 @@ def canonical_tool_definitions(
             ),
         ]
     )
+    if orchestrator:
+        # Coordinators do not write code, produce or edit assets: remove the
+        # implementation tools that survived the generic blocks above.
+        excluded = {
+            "save_assets", "retrieve_option", "remove_backgrounds",
+            "edit_images", "extract_assets", "screenshot_preview",
+        }
+        tools = [tool for tool in tools if tool.name not in excluded]
     return tools

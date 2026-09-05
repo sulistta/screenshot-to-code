@@ -21,9 +21,11 @@ from typing import Any, Callable, Dict, List, Optional, cast
 
 from openai.types.chat import ChatCompletionMessageParam
 
+from agent.budget import SharedBudget
 from agent.providers.custom import resolve_active_custom_provider
 from agent.providers.factory import create_provider_session
 from agent.runtime.errors import EmptyOutputError
+from agent.runtime.events import AgentIdentity
 from agent.runtime.interaction import QuestionGate
 from agent.runtime.loop import AgentRuntime, RuntimeConfig
 from agent.runtime.statuses import RunStatus
@@ -36,6 +38,13 @@ from config import (
 )
 from fs_logging.agent_runs import AgentRunRecorder
 from llm import ANTHROPIC_MODELS, GEMINI_MODELS, MODEL_PROVIDER, OPENAI_MODELS, Llm
+from projects.agents import (
+    AgentRun,
+    AgentTeam,
+    AgentRunStore,
+    coordinator_agent,
+    now_iso as timestamp_now,
+)
 from projects.store import ProjectStore, TranscriptMessage
 from projects.event_store import EventJournal
 
@@ -62,6 +71,10 @@ class ActiveRun:
     status: RunStatus
     started: bool = False
     cancelling: bool = False
+    team: AgentTeam = field(default_factory=AgentTeam)
+    budget: Optional[SharedBudget] = None
+    locks: Any = None
+    cancel_scope: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 class ProjectRunManager:
@@ -69,17 +82,23 @@ class ProjectRunManager:
         self.store = store
         self._active: Dict[str, ActiveRun] = {}
         self._sinks: Dict[str, List[RunEventSink]] = {}
-        # Ring buffer of wire events per project: transports that attach
-        # mid-run (initial connect, reconnects) replay history instead of
-        # missing everything that happened before they subscribed.
-        self._event_buffers: Dict[str, List[Dict[str, Any]]] = {}
-        self._event_buffer_limit = 500
         self.journal = EventJournal(store.root / ".events.sqlite3")
+        self.agent_runs = AgentRunStore(store)
         self._recover_interrupted_runs()
 
     def _recover_interrupted_runs(self) -> None:
         """A process restart cannot resume provider sessions; finish them explicitly."""
         for project in self.store.list():
+            for agent in self.agent_runs.list_running(project.id):
+                agent.status = "cancelled"
+                agent.finished_at = agent.started_at
+                agent.error = "Run interrupted by a Studio restart."
+                self.agent_runs.save(project.id, agent)
+                self.journal.append(project.id, {"type": "agent_status",
+                    "agentId": agent.agent_id, "name": agent.name, "role": agent.role,
+                    "parentAgentId": agent.parent_agent_id, "status": "cancelled",
+                    "objective": agent.objective, "filePaths": agent.file_paths,
+                    "summary": "", "error": agent.error})
             for record in self.store.list_run_records(project.id):
                 if record.get("status") not in {"running", "waiting_for_user"}:
                     continue
@@ -95,16 +114,17 @@ class ProjectRunManager:
     # --- transports -----------------------------------------------------------
     def attach_sink(self, project_id: str, sink: RunEventSink, replay: bool = True) -> None:
         self._sinks.setdefault(project_id, []).append(sink)
-        for event in list(self._event_buffers.get(project_id, [])) if replay else []:
+        if not replay:
+            return
+        # Replay from the durable journal, not memory: a transport attaching
+        # after a backend restart still receives the run history.
+        for event in self.journal.read(project_id, limit=500):
             self._put(sink, event)
 
     def detach_sink(self, project_id: str, sink: RunEventSink) -> None:
         sinks = self._sinks.get(project_id)
         if sinks and sink in sinks:
             sinks.remove(sink)
-
-    def clear_events(self, project_id: str) -> None:
-        self._event_buffers.pop(project_id, None)
 
     def _put(self, sink: RunEventSink, event: Dict[str, Any]) -> None:
         result = sink(event)
@@ -113,16 +133,12 @@ class ProjectRunManager:
 
     async def _broadcast(self, project_id: str, event: Dict[str, Any]) -> None:
         event = self.journal.append(project_id, event)
-        buffer = self._event_buffers.setdefault(project_id, [])
-        buffer.append(event)
-        if len(buffer) > self._event_buffer_limit:
-            del buffer[: len(buffer) - self._event_buffer_limit]
         for sink in list(self._sinks.get(project_id, [])):
             try:
                 await sink(event)
             except Exception:
                 # A disconnected UI must not turn a successful generation into
-                # a failed run. The client can reconnect and replay the buffer.
+                # a failed run. The client can reconnect and replay the journal.
                 logger.warning("Detached failed project event sink", exc_info=True)
                 self.detach_sink(project_id, sink)
 
@@ -158,12 +174,23 @@ class ProjectRunManager:
             ),
         )
         self.store.start_run_record(project_id, run_id, config)
+        # One shared spending ceiling for the coordinator and every
+        # specialist; individual sessions no longer each get a full budget.
+        budget = SharedBudget(GENERATION_MAX_COST_USD)
+        coordinator = coordinator_agent(run_id, request.text.strip() or "(image brief)")
+        self.agent_runs.save(project_id, coordinator)
+        self.journal.append(project_id, {"type": "agent_status",
+            "agentId": coordinator.agent_id, "name": coordinator.name,
+            "role": coordinator.role, "parentAgentId": None,
+            "status": "working", "objective": coordinator.objective,
+            "filePaths": [], "summary": "", "error": None})
 
         task = asyncio.create_task(
-            self._run(project_id, meta.id, run_id, request, gate, config)
+            self._run(project_id, meta.id, run_id, request, gate, config, budget)
         )
         self._active[project_id] = ActiveRun(
-            run_id=run_id, task=task, gate=gate, status=RunStatus.RUNNING
+            run_id=run_id, task=task, gate=gate, status=RunStatus.RUNNING,
+            budget=budget,
         )
         return run_id
 
@@ -175,12 +202,15 @@ class ProjectRunManager:
         request: RunRequest,
         gate: QuestionGate,
         config: Dict[str, str],
+        budget: SharedBudget,
     ) -> None:
         status = RunStatus.FAILED
         assistant_reply = ""
         workspace: Optional[Workspace] = None
         files_before: Dict[str, str] = {}
         error_message: Optional[str] = None
+        active = self._active[project_id]
+        cancel_event = active.cancel_scope
         try:
             active = self._active[project_id]
             active.started = True
@@ -200,7 +230,6 @@ class ProjectRunManager:
                 workspace,
                 request,
                 history=self.store.read_transcript(project_id)[:-1],
-                execution_mode=config["execution_mode"],
             )
 
             settings = request.settings
@@ -213,7 +242,6 @@ class ProjectRunManager:
             primary_custom_id = custom_model_id_of(config["primary_model"])
             subagent_custom_id = custom_model_id_of(config["subagent_model"])
             engine_keys = extract_engine_keys(settings)
-            delegation_allowed = True
 
             recorder = AgentRunRecorder(
                 generation_id=f"proj_{project_id}_{run_id}",
@@ -245,9 +273,11 @@ class ProjectRunManager:
                 ),
                 recorder=recorder,
                 ask_user_enabled=True,
-                spawn_agent_enabled=delegation_allowed,
+                orchestrator=True,
                 custom_model_id=primary_custom_id,
             )
+            # The coordinator spends from the same pool as its specialists.
+            budget.register(session)
             assistant_reply_buffer: List[str] = []
 
             async def emitting(event: Any) -> None:
@@ -256,7 +286,61 @@ class ProjectRunManager:
                 await self._broadcast(project_id, _event_to_wire(event, run_id))
 
             try:
-                from projects.subagents import SubagentBrief, run_subagent, run_subagents_parallel
+                from projects.subagents import (
+                    SubagentBrief,
+                    SubagentContext,
+                    SubagentLocks,
+                    run_subagent,
+                    run_subagents_parallel,
+                )
+
+                active = self._active[project_id]
+                locks = active.locks if active.locks is not None else SubagentLocks()
+                if active.locks is None:
+                    active.locks = locks
+                sub_context = SubagentContext(
+                    budget=budget, locks=locks, cancel_scope=cancel_event
+                )
+
+                def identity_for(brief: SubagentBrief) -> Any:
+                    agent_id = active.team.new_agent_id()
+                    name = active.team.specialist_name(brief.role)
+                    agent = AgentRun(
+                        agent_id=agent_id, run_id=run_id, name=name,
+                        role=brief.role, parent_agent_id="coordinator",
+                        objective=brief.objective, status="queued",
+                        file_paths=list(brief.file_paths),
+                    )
+                    self.agent_runs.save(project_id, agent)
+                    return AgentIdentity(
+                        agent_id=agent_id, name=name, role=brief.role,
+                        parent_agent_id="coordinator",
+                    )
+
+                async def persist_agent(agent_id: str, **updates: Any) -> None:
+                    record = self.agent_runs.get(project_id, run_id, agent_id)
+                    if record is None:
+                        return
+                    for key, value in updates.items():
+                        setattr(record, key, value)
+                    self.agent_runs.save(project_id, record)
+
+                async def team_emit(event: Dict[str, Any]) -> None:
+                    await self._broadcast(project_id, event)
+                    event_type = event.get("type")
+                    agent_id = event.get("agentId")
+                    if not isinstance(agent_id, str) or not agent_id:
+                        return
+                    if event_type == "agent_status":
+                        status = str(event.get("status", ""))
+                        updates: Dict[str, Any] = {"status": status}
+                        if event.get("summary"):
+                            updates["summary"] = str(event["summary"])
+                        if event.get("error"):
+                            updates["error"] = str(event["error"])
+                        if status in {"completed", "failed", "cancelled"}:
+                            updates["finished_at"] = timestamp_now()
+                        await persist_agent(agent_id, **updates)
 
                 async def subagent_runner(args: Dict[str, Any]) -> Any:
                     from agent.tools.types import ToolExecutionResult
@@ -269,19 +353,41 @@ class ProjectRunManager:
                         candidate_paths = cast(List[object], item.get("file_paths")) if isinstance(item.get("file_paths"), list) else []
                         paths = [path for path in candidate_paths if isinstance(path, str)] if isinstance(candidate_paths, list) else []
                         briefs.append(SubagentBrief(role=str(item.get("role", "specialist")), objective=str(item.get("objective", "")), file_paths=paths, guidance=str(item.get("guidance", "") or ""), parent_context=str(item.get("context", "") or "")))
-                    async def swarm_emit(event: Dict[str, Any]) -> None:
-                        await self._broadcast(project_id, {"type": "swarm_agent", "runId": run_id, "agent": event.get("agent"), "eventType": getattr(event.get("event"), "type", "status")})
                     if len(briefs) > 1:
-                        outcomes = await run_subagents_parallel(briefs, workspace, subagent_model, settings, engine_keys, emit=swarm_emit, custom_model_id=subagent_custom_id)
+                        outcomes = await run_subagents_parallel(
+                            briefs, workspace, subagent_model, settings, engine_keys,
+                            emit=team_emit, custom_model_id=subagent_custom_id,
+                            identity_of=identity_for, context=sub_context,
+                        )
                     else:
-                        outcomes = [await run_subagent(briefs[0], workspace, subagent_model, settings, engine_keys, custom_model_id=subagent_custom_id, emit=swarm_emit)] if briefs else []
+                        brief = briefs[0]
+                        outcome = await run_subagent(
+                            brief, workspace, subagent_model, settings, engine_keys,
+                            custom_model_id=subagent_custom_id, emit=team_emit,
+                            identity=identity_for(brief), context=sub_context,
+                        ) if briefs else None
+                        outcomes = [outcome] if outcome is not None else []
+                    # The merge result is the authoritative file list per agent.
+                    for item in outcomes:
+                        if item.agent_id and item.agent_id != "team-invalid":
+                            await persist_agent(item.agent_id, files=list(item.files))
                     outcome = outcomes[0] if len(outcomes) == 1 else None
                     return ToolExecutionResult(
                         ok=bool(outcomes) and all(item.ok for item in outcomes),
                         result={
-                            "summary": outcome.summary if outcome else "Parallel swarm completed.",
+                            "summary": outcome.summary if outcome else "Parallel team completed.",
                             "files": [path for item in outcomes for path in item.files],
-                            "agents": [{"role": brief.role, "summary": item.summary, "files": item.files, "error": item.error} for brief, item in zip(briefs, outcomes)],
+                            "agents": [
+                                {
+                                    "agentId": item.agent_id,
+                                    "name": item.name or brief.role,
+                                    "role": brief.role,
+                                    "summary": item.summary,
+                                    "files": item.files,
+                                    "error": item.error,
+                                }
+                                for brief, item in zip(briefs, outcomes)
+                            ],
                         },
                         summary={
                             "roles": [brief.role for brief in briefs],
@@ -295,12 +401,13 @@ class ProjectRunManager:
                         workspace,
                         engine_keys,
                         settings,
-                        subagent_runner if delegation_allowed else None,
+                        subagent_runner,
+                        orchestrator=True,
                     ),
                     emit=emitting,
                     recorder=recorder,
                     interaction=gate,
-                    config=RuntimeConfig(budget_usd=GENERATION_MAX_COST_USD),
+                    config=RuntimeConfig(shared_budget=budget),
                     file_state=workspace,
                 )
                 result = await runtime.run(model, prompt_messages)
@@ -324,8 +431,22 @@ class ProjectRunManager:
             error_message = categorize_error(exc)
             assistant_reply = f"Run failed: {error_message}"
         finally:
-            # Persist whatever the workspace looks like now — partial work
-            # from a cancelled run still counts.
+            # Cascade: any specialist still queued or running under this run
+            # terminates with the run.
+            active.cancel_scope.set()
+            try:
+                coordinator = self.agent_runs.get(project_id, run_id, "coordinator")
+                if coordinator is not None:
+                    coordinator.status = {
+                        RunStatus.COMPLETED: "completed",
+                        RunStatus.CANCELLED: "cancelled",
+                    }.get(status, "failed")
+                    coordinator.finished_at = timestamp_now()
+                    coordinator.summary = assistant_reply
+                    coordinator.error = error_message
+                    self.agent_runs.save(project_id, coordinator)
+            except Exception:
+                logger.exception("Could not persist the coordinator record for %s", run_id)
             files_changed: List[str] = []
             iteration_id: Optional[str] = None
             def persistence_failed(operation: str) -> None:
@@ -337,16 +458,20 @@ class ProjectRunManager:
 
             try:
                 if workspace is not None:
-                    self.store.save_workspace(project_id, workspace)
                     files_changed = sorted(
                         path
                         for path in workspace.files.keys() | files_before.keys()
                         if workspace.files.get(path) != files_before.get(path)
                     )
+                    if status is RunStatus.COMPLETED:
+                        # Only a completed run publishes the live workspace.
+                        self.store.save_workspace(project_id, workspace)
             except Exception:
                 persistence_failed("the workspace")
-            # Only completed executions become iterations: a checkpoint is a
-            # meaningful, validated state, not every intermediate write.
+            # Only completed executions publish their files as the live
+            # workspace version AND create an iteration checkpoint. Failed
+            # and cancelled runs keep their partial output in a per-run
+            # draft instead of replacing the last working files.
             if status is RunStatus.COMPLETED and workspace is not None:
                 try:
                     record = self.store.save_iteration(
@@ -362,6 +487,13 @@ class ProjectRunManager:
                     iteration_id = record["id"]
                 except Exception:
                     persistence_failed("the version")
+            elif workspace is not None and files_changed:
+                # Partial output of a failed/cancelled run is a recoverable
+                # draft, never the live version.
+                try:
+                    self.store.save_draft(project_id, run_id, workspace)
+                except Exception:
+                    persistence_failed("the run draft")
             try:
                 self.store.append_transcript_message(
                     project_id,
@@ -382,6 +514,7 @@ class ProjectRunManager:
             except Exception:
                 persistence_failed("the run record")
             self._active.pop(project_id, None)
+            self.journal.prune(project_id)
             await self._broadcast(
                 project_id,
                 {
@@ -410,15 +543,14 @@ class ProjectRunManager:
         if active is None or active.task.done() or active.cancelling:
             return False
         active.cancelling = True
+        # Cascade: specialists observe the scope (queued agents exit; running
+        # ones finish at their next await and still persist their records).
+        active.cancel_scope.set()
         # Cancelling before the coroutine starts skips its finally block. Let
         # it enter first so the durable run record is always finalized.
         if active.started:
             active.task.cancel()
         return True
-
-
-def _mode_directive(execution_mode: str) -> str:
-    return "\n\n# Dynamic swarm\n- Decide whether the task needs 0, 1, or many specialists; there is no fixed roster. For independent work, use spawn_agents with 2-4 disjoint scopes so they run concurrently. Otherwise use spawn_agent. Integrate and review results before finishing.\n- Material ambiguity belongs in ask_user, which must have exactly four concrete options.\n"
 
 
 def _event_to_wire(event: Any, run_id: str) -> Dict[str, Any]:
@@ -453,12 +585,14 @@ def _build_tool_runtime(
     keys: Dict[str, Optional[str]],
     settings: Dict[str, Any],
     subagent_runner: Optional[Any] = None,
+    orchestrator: bool = False,
 ) -> Any:
     from agent.tools import AgentToolRuntime
 
     return AgentToolRuntime(
         file_state=workspace,
         should_generate_images=bool(settings.get("isImageGenerationEnabled", True)),
+        orchestrator=orchestrator,
         openai_api_key=keys["openai_api_key"],
         openai_base_url=keys["openai_base_url"],
         gemini_api_key=keys["gemini_api_key"],
@@ -504,7 +638,6 @@ def resolve_execution_config(
     subagent = str(
         settings.get("subagentModel") or meta.subagent_model or ""
     ).strip()
-    mode = "swarm"
 
     available_by_value = available_models(keys)
     # A user-registered custom provider makes the OpenAI-compatible model
@@ -539,7 +672,6 @@ def resolve_execution_config(
         "primary_model": primary,
         # Empty subagent model: subagents use the primary model.
         "subagent_model": subagent,
-        "execution_mode": mode,
     }
 
 
@@ -693,14 +825,13 @@ async def build_run_prompts(
     workspace: Workspace,
     request: RunRequest,
     history: Optional[List[TranscriptMessage]] = None,
-    execution_mode: str = "auto",
 ) -> List[ChatCompletionMessageParam]:
     """Conversation prompts for a project run.
 
-    Uses the studio system prompt (creative direction + durable project
-    guidance). First run (empty workspace) builds a creation prompt from the
-    brief; later runs build an update prompt over the current entry file.
-    Prior transcript turns are replayed as chat history so the agent keeps
+    Uses the studio system prompt (orchestration + durable project guidance).
+    First run (empty workspace) builds a creation prompt from the brief;
+    later runs build an update prompt over the current entry file. Prior
+    transcript turns are replayed as chat history so the agent keeps
     conversational context across runs.
     """
     from prompts.pipeline import build_prompt_messages
@@ -740,7 +871,7 @@ async def build_run_prompts(
             request.settings.get("isImageGenerationEnabled", True)
         ),
         design_system=request.settings.get("designSystem"),
-        system_prompt_override=STUDIO_SYSTEM_PROMPT + _mode_directive(execution_mode),
+        system_prompt_override=STUDIO_SYSTEM_PROMPT,
     )
     if not chat_history:
         return list(messages)

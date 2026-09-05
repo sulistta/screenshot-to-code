@@ -55,6 +55,9 @@ def _default_event_id(prefix: str) -> str:
 class RuntimeConfig:
     # None disables the ceiling (unpriced models already report None).
     budget_usd: Optional[float] = None
+    # When set, replaces the per-session ceiling: all registered sessions
+    # spend from one shared pool (coordinator + subagents).
+    shared_budget: Optional[Any] = None
     # Repeating an identical tool call this many times triggers a warning
     # injected into the tool result; the next threshold fails the run.
     stuck_warn_after: int = 3
@@ -208,11 +211,16 @@ class AgentRuntime:
         # Abort only when the run would otherwise continue: a run that just
         # produced its final answer is already paid for. Unpriced models
         # return None and are not bounded.
-        spent = self.session.total_cost_usd()
+        spent = self._spent_usd()
+        limit = (
+            self.config.shared_budget.limit_usd
+            if self.config.shared_budget is not None
+            else self.config.budget_usd
+        )
         if (
-            self.config.budget_usd is not None
+            limit is not None
             and spent is not None
-            and spent > self.config.budget_usd
+            and spent > limit
         ):
             raise BudgetExceededError()
 
@@ -222,6 +230,12 @@ class AgentRuntime:
 
         await self.session.append_tool_results(turn, executed_tool_calls)
         return None
+
+    def _spent_usd(self) -> Optional[float]:
+        """Spend for ceiling checks: the shared pool when configured."""
+        if self.config.shared_budget is not None:
+            return self.config.shared_budget.spent_usd()
+        return self.session.total_cost_usd()
 
     async def _execute_tool(self, tool_call: ToolCall) -> ExecutedToolCall:
         tool_event_id = tool_call.id or self.config.event_id_factory("tool")

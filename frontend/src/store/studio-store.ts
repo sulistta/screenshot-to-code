@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import type { Settings } from "@/types";
 import type {
+  StudioAgent,
+  StudioAgentStatus,
   StudioIteration,
   StudioProject,
   StudioQuestion,
@@ -17,7 +19,6 @@ export interface RunOutcome {
   config: {
     primary_model: string;
     subagent_model: string;
-    execution_mode: string;
   } | null;
 }
 
@@ -29,6 +30,9 @@ export interface StudioActivityItem {
   eventId?: string;
   toolDetail?: string;
   ok?: boolean;
+  /** Set when the item belongs to a specialist, not the coordinator. */
+  agentId?: string;
+  agentName?: string;
 }
 
 interface StudioState {
@@ -37,6 +41,8 @@ interface StudioState {
   transcript: StudioTranscriptMessage[];
   /** Live activity for the current run (not yet in the transcript). */
   activity: StudioActivityItem[];
+  /** The run's team: coordinator + specialists, by agent id. */
+  team: Record<string, StudioAgent>;
   previewContent: string | null;
   /** Bumped when the live workspace changed; the preview iframe reloads. */
   previewNonce: number;
@@ -84,11 +90,22 @@ function mergeMessages(
   return result;
 }
 
+/** Lifecycle wire status -> agent state, tolerating unknown values. */
+function asAgentStatus(value: unknown): StudioAgentStatus {
+  const known: StudioAgentStatus[] = [
+    "queued", "working", "verifying", "completed", "failed", "cancelled",
+  ];
+  return known.includes(value as StudioAgentStatus)
+    ? (value as StudioAgentStatus)
+    : "working";
+}
+
 export const useStudioStore = create<StudioState>((set, get) => ({
   projects: [],
   activeProjectId: null,
   transcript: [],
   activity: [],
+  team: {},
   previewContent: null,
   previewNonce: 0,
   runStatus: null,
@@ -114,6 +131,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       activeProjectId: projectId,
       transcript: [],
       activity: [],
+      team: {},
       previewContent: null,
       runStatus: null,
       activeQuestion: null,
@@ -151,6 +169,45 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       }]) }));
       return;
     }
+    if (event.type === "agent_status") {
+      // Team lifecycle: upsert the agent; a fresh coordinator marks a new run.
+      const agentId = event.agentId ?? "";
+      if (!agentId) return;
+      set((current) => {
+        const previous = current.team[agentId];
+        const coordinatorNewRun =
+          agentId === "coordinator" &&
+          (!previous || previous.status === "completed" || previous.status === "failed" ||
+           previous.status === "cancelled");
+        const team = { ...current.team };
+        team[agentId] = {
+          agentId,
+          name: event.name ?? previous?.name ?? "Agent",
+          role: event.role ?? previous?.role ?? "specialist",
+          parentAgentId: event.agentId === "coordinator"
+            ? null
+            : previous?.parentAgentId ?? null,
+          status: asAgentStatus(event.status),
+          objective: event.objective ?? previous?.objective ?? "",
+          filePaths: event.filePaths ?? previous?.filePaths ?? [],
+          files: previous?.files ?? [],
+          currentAction:
+            asAgentStatus(event.status) === "working"
+              ? previous?.currentAction
+              : undefined,
+          summary: event.summary || previous?.summary || undefined,
+          error: event.error ?? previous?.error ?? null,
+        };
+        return {
+          team,
+          // A brand-new coordinator resets per-run views.
+          ...(coordinatorNewRun && event.status === "working"
+            ? { activity: [], error: null }
+            : {}),
+        };
+      });
+      return;
+    }
     if (event.type === "run_status") {
       const status = event.status as StudioRunStatus | undefined;
       if (status === "running") {
@@ -168,7 +225,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
               state.lastOutcome.status === status) return state;
           // Move the live activity into the transcript as the run's reply.
           const replyText = event.message ?? state.activity
-            .filter((item) => item.kind === "assistant")
+            .filter((item) => item.kind === "assistant" && !item.agentId)
             .map((item) => item.text)
             .join("")
             .trim();
@@ -234,11 +291,37 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     }
 
     if (event.type === "swarm_agent") {
+      // Legacy wire event (pre-identity protocol); rendered as a plain line.
       set((current) => ({ activity: [...current.activity, {
         id: nextActivityId(), kind: "tool", toolName: "spawn_agent",
         toolDetail: `${event.agent ?? "Specialist"}: ${event.eventType ?? "working"}`,
         ok: true, text: "",
       }] }));
+      return;
+    }
+
+    // Specialist-attributed tool/status events feed that agent's panel and
+    // its readable current action; they are not coordinator activity.
+    if (event.agentId) {
+      const agentId = event.agentId;
+      const detail = summarizeToolInput(event.tool ?? event.name, event.input);
+      set((current) => {
+        const agent = current.team[agentId];
+        if (!agent) return {};
+        const files = new Set(agent.files);
+        const path = typeof event.input?.path === "string" ? event.input.path : null;
+        if (event.type === "tool_result" && event.ok !== false && path) files.add(path);
+        return {
+          team: {
+            ...current.team,
+            [agentId]: {
+              ...agent,
+              currentAction: detail || agent.currentAction,
+              files: [...files],
+            },
+          },
+        };
+      });
       return;
     }
 

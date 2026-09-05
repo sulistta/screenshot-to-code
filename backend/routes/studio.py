@@ -1,4 +1,5 @@
 """Typed v1 Studio API. Legacy routes remain available during migration."""
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, UploadFile
@@ -10,6 +11,20 @@ from projects.store import ProjectNotFoundError
 from routes.projects import get_manager
 
 router = APIRouter(prefix="/api/v1/projects")
+
+# One edit lock per project: the revision check + publish pair in
+# write_file/restore must not interleave with a concurrent manual edit,
+# or both would pass the check and the second save would silently drop
+# the first writer's files.
+_edit_locks: dict[str, asyncio.Lock] = {}
+
+
+def edit_lock(project_id: str) -> asyncio.Lock:
+    lock = _edit_locks.get(project_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _edit_locks[project_id] = lock
+    return lock
 
 
 class FileEdit(BaseModel):
@@ -47,7 +62,11 @@ async def files(project_id: str) -> dict[str, Any]:
 @router.put("/{project_id}/files")
 async def edit_file(project_id: str, body: FileEdit) -> dict[str, Any]:
     try:
-        return service(project_id, True).write_file(project_id, body.path, body.content, body.revision)
+        async with edit_lock(project_id):
+            return await asyncio.to_thread(
+                service(project_id, True).write_file,
+                project_id, body.path, body.content, body.revision,
+            )
     except RevisionConflict as exc:
         raise HTTPException(409, str(exc))
     except ValueError as exc:
@@ -65,11 +84,64 @@ async def diff(project_id: str, iteration_id: str) -> dict[str, Any]:
 @router.post("/{project_id}/revisions/{iteration_id}/restore")
 async def restore(project_id: str, iteration_id: str, body: RestoreRequest) -> dict[str, Any]:
     try:
-        return service(project_id, True).restore(project_id, iteration_id, body.revision)
+        async with edit_lock(project_id):
+            return await asyncio.to_thread(
+                service(project_id, True).restore,
+                project_id, iteration_id, body.revision,
+            )
     except RevisionConflict as exc:
         raise HTTPException(409, str(exc))
     except (ValueError, FileNotFoundError):
         raise HTTPException(404, "Version not found")
+
+
+@router.get("/{project_id}/runs/{run_id}/agents")
+async def run_agents(project_id: str, run_id: str) -> dict[str, Any]:
+    """The run's agent team: identity, state, files and results."""
+    manager = get_manager()
+    try:
+        manager.store.get(project_id)
+    except ProjectNotFoundError:
+        raise HTTPException(404, "Project not found")
+    agents = manager.agent_runs.list_run(project_id, run_id)
+    return {"agents": [
+        {
+            "agentId": agent.agent_id,
+            "name": agent.name,
+            "role": agent.role,
+            "parentAgentId": agent.parent_agent_id,
+            "objective": agent.objective,
+            "status": agent.status,
+            "filePaths": agent.file_paths,
+            "files": agent.files,
+            "startedAt": agent.started_at,
+            "finishedAt": agent.finished_at,
+            "summary": agent.summary,
+            "error": agent.error,
+        }
+        for agent in agents
+    ]}
+
+
+@router.get("/{project_id}/drafts")
+async def list_drafts(project_id: str) -> dict[str, Any]:
+    try:
+        return {"drafts": get_manager().store.list_drafts(project_id)}
+    except ProjectNotFoundError:
+        raise HTTPException(404, "Project not found")
+
+
+@router.post("/{project_id}/drafts/{run_id}/restore")
+async def restore_draft(project_id: str, run_id: str) -> dict[str, Any]:
+    try:
+        async with edit_lock(project_id):
+            return await asyncio.to_thread(
+                get_manager().store.restore_draft, project_id, run_id
+            )
+    except ProjectNotFoundError:
+        raise HTTPException(404, "Project not found")
+    except FileNotFoundError:
+        raise HTTPException(404, "Draft not found")
 
 
 @router.get("/{project_id}/export")

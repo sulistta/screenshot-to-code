@@ -15,7 +15,6 @@ export interface StudioProject {
   updatedAt: string;
   primaryModel: string;
   subagentModel: string;
-  executionMode: "auto" | "single" | "swarm";
 }
 
 export interface StudioIteration {
@@ -34,14 +33,11 @@ export interface StudioRunRecord {
   config: {
     primary_model: string;
     subagent_model: string;
-    execution_mode: string;
   };
   files_changed: string[];
   iteration_id: string | null;
   error: string | null;
 }
-
-export type ExecutionMode = "auto" | "single" | "swarm";
 
 export interface StudioTranscriptMessage {
   role: "user" | "assistant";
@@ -49,6 +45,30 @@ export interface StudioTranscriptMessage {
   createdAt: string;
   runId: string | null;
   images: string[];
+}
+
+export type StudioAgentStatus =
+  | "queued"
+  | "working"
+  | "verifying"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+/** One member of the run's team (coordinator or specialist). */
+export interface StudioAgent {
+  agentId: string;
+  name: string;
+  role: string;
+  parentAgentId: string | null;
+  status: StudioAgentStatus;
+  objective: string;
+  filePaths: string[];
+  /** Files the agent actually produced or changed. */
+  files: string[];
+  currentAction?: string;
+  summary?: string;
+  error?: string | null;
 }
 
 export interface StudioRunEvent {
@@ -62,6 +82,7 @@ export interface StudioRunEvent {
     | "question"
     | "status"
     | "swarm_agent"
+    | "agent_status"
     | "run_status";
   runId?: string;
   projectId?: string;
@@ -84,12 +105,18 @@ export interface StudioRunEvent {
   status?: string;
   agent?: string;
   eventType?: string;
+  /** Agent identity fields (specialist-attributed events). */
+  agentId?: string;
+  role?: string;
+  objective?: string;
+  filePaths?: string[];
+  tool?: string;
+  summary?: string;
   iterationId?: string | null;
   filesChanged?: string[];
   config?: {
     primary_model: string;
     subagent_model: string;
-    execution_mode: string;
   };
 }
 

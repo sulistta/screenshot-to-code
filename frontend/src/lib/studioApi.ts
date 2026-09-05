@@ -38,7 +38,7 @@ export async function deleteProject(projectId: string): Promise<void> {
 
 export async function updateProject(
   projectId: string,
-  patch: Partial<Pick<StudioProject, "name" | "brief" | "primaryModel" | "subagentModel" | "executionMode">>,
+  patch: Partial<Pick<StudioProject, "name" | "brief" | "primaryModel" | "subagentModel">>,
 ): Promise<StudioProject> {
   const response = await fetch(`${HTTP_BASE}/api/projects/${projectId}`, {
     method: "PATCH",

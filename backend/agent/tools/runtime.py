@@ -48,6 +48,7 @@ class AgentToolRuntime:
         user_id: Optional[str] = None,
         option_codes: Optional[List[str]] = None,
         subagent_runner: Optional[Any] = None,
+        orchestrator: bool = False,
     ):
         self.file_state = file_state
         self.should_generate_images = should_generate_images
@@ -62,6 +63,9 @@ class AgentToolRuntime:
         # Async callable(args dict) -> ToolExecutionResult, provided by hosts
         # that support orchestrator runs; None disables spawn_agent.
         self.subagent_runner = subagent_runner
+        # Orchestrator mode: workspace writes are structurally refused. The
+        # coordinator plans, delegates and integrates; specialists implement.
+        self.orchestrator = orchestrator
 
     def _effective_replicate_api_key(self) -> str | None:
         return self.replicate_api_key or REPLICATE_API_KEY
@@ -88,6 +92,24 @@ class AgentToolRuntime:
                     "INVALID_JSON": invalid_json,
                 },
                 summary={"error": "Invalid JSON tool arguments"},
+            )
+
+        if self.orchestrator and tool_call.name in (
+            "create_file", "edit_file", "generate_images",
+            "edit_images", "remove_backgrounds", "extract_assets",
+            "save_assets",
+        ):
+            return ToolExecutionResult(
+                ok=False,
+                result={
+                    "error": (
+                        "You are the orchestrator: writing files and producing "
+                        "assets is done by specialists. Delegate this work with "
+                        "spawn_agent/spawn_agents, then verify and integrate the "
+                        "results."
+                    )
+                },
+                summary={"error": "Orchestrators delegate instead of writing"},
             )
 
         if tool_call.name == "create_file":

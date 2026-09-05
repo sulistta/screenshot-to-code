@@ -106,6 +106,54 @@ def _install_fake_session(
     return session
 
 
+def _install_delegation(
+    monkeypatch: pytest.MonkeyPatch,
+    coordinator_turns: List[ProviderTurn],
+    *,
+    specialist_content: str = "<html>x</html>",
+) -> FakeSession:
+    """Coordinator delegates once; the specialist writes the file and finishes."""
+    delegate = ProviderTurn(
+        assistant_text="",
+        tool_calls=[
+            ToolCall(
+                id="d1",
+                name="spawn_agent",
+                arguments={
+                    "role": "engineer",
+                    "objective": "create the page",
+                    "file_paths": ["index.html"],
+                },
+            )
+        ],
+    )
+    coordinator = _install_fake_session(
+        monkeypatch, [delegate, *coordinator_turns]
+    )
+
+    def fake_specialist(**kwargs: Any) -> FakeSession:
+        return FakeSession(
+            [
+                ProviderTurn(
+                    assistant_text="",
+                    tool_calls=[
+                        ToolCall(
+                            id="s1",
+                            name="create_file",
+                            arguments={"content": specialist_content},
+                        )
+                    ],
+                ),
+                ProviderTurn(assistant_text="Specialist done.", tool_calls=[]),
+            ]
+        )
+
+    monkeypatch.setattr(
+        "projects.subagents.create_provider_session", fake_specialist
+    )
+    return coordinator
+
+
 @pytest.mark.asyncio
 async def test_manager_run_completes_and_persists(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -113,17 +161,9 @@ async def test_manager_run_completes_and_persists(
     store = ProjectStore(tmp_path / "projects")
     meta = store.create(name="p", brief="b")
     manager = ProjectRunManager(store)
-    session = _install_fake_session(
+    session = _install_delegation(
         monkeypatch,
-        [
-            ProviderTurn(
-                assistant_text="",
-                tool_calls=[
-                    ToolCall(id="c1", name="create_file", arguments={"content": "<html>x</html>"})
-                ],
-            ),
-            ProviderTurn(assistant_text="Built the page.", tool_calls=[]),
-        ],
+        [ProviderTurn(assistant_text="Built the page.", tool_calls=[])],
     )
 
     events: List[dict] = []
@@ -232,28 +272,54 @@ async def test_manager_cancel_keeps_partial_workspace(
     meta = store.create(name="p", brief="b")
     manager = ProjectRunManager(store)
 
-    class WriteThenHangSession(FakeSession):
+    class CoordinatorDelegates(FakeSession):
         async def stream_turn(self, on_event: EventSink) -> ProviderTurn:
             if self.turns:
                 return self.turns.pop(0)
-            # Second provider turn: hang until the test cancels the run.
+            # After delegating, the coordinator hangs until cancellation.
             await asyncio.sleep(30)
             raise asyncio.CancelledError()
 
-    _install = monkeypatch.setattr(
-        "projects.manager.create_provider_session",
-        lambda **kwargs: WriteThenHangSession(
+    def fake_coordinator(**kwargs: Any) -> CoordinatorDelegates:
+        return CoordinatorDelegates(
             [
                 ProviderTurn(
                     assistant_text="",
                     tool_calls=[
                         ToolCall(
-                            id="c1",
+                            id="d1",
+                            name="spawn_agent",
+                            arguments={
+                                "role": "engineer",
+                                "objective": "start the page",
+                                "file_paths": ["index.html"],
+                            },
+                        )
+                    ],
+                )
+            ]
+        )
+
+    monkeypatch.setattr(
+        "projects.manager.create_provider_session", fake_coordinator
+    )
+    # The specialist finishes and merges its file into the parent workspace;
+    # the coordinator hangs afterwards and is cancelled with partial work.
+    monkeypatch.setattr(
+        "projects.subagents.create_provider_session",
+        lambda **kwargs: FakeSession(
+            [
+                ProviderTurn(
+                    assistant_text="",
+                    tool_calls=[
+                        ToolCall(
+                            id="s1",
                             name="create_file",
                             arguments={"content": "<html>partial</html>"},
                         )
                     ],
-                )
+                ),
+                ProviderTurn(assistant_text="Specialist done.", tool_calls=[]),
             ]
         ),
     )
@@ -265,9 +331,12 @@ async def test_manager_cancel_keeps_partial_workspace(
         if manager.active_run_id(meta.id) is None:
             break
         await asyncio.sleep(0.01)
-    # Partial workspace survived the cancel: the file the agent already
-    # wrote is persisted even though the run never finished.
-    assert store.load_workspace(meta.id).read("index.html") == "<html>partial</html>"
+    # Cancelling must not replace the live (last validated) workspace. The
+    # partial output is kept as a per-run draft, recoverable explicitly.
+    assert store.load_workspace(meta.id).read("index.html") == ""
+    drafts = store.list_drafts(meta.id)
+    assert len(drafts) == 1
+    assert drafts[0]["files"] == ["index.html"]
 
 
 @pytest.mark.asyncio
@@ -332,7 +401,7 @@ async def test_persistence_failure_never_reports_completed(
     assert record is not None
     assert record["status"] == "failed"
     assert "Could not save" in record["error"]
-    assert manager._event_buffers[project.id][-1]["status"] == "failed"
+    assert manager.journal.read(project.id)[-1]["status"] == "failed"
     assert store.load_workspace(project.id).content == "<html>old</html>"
 
 
@@ -340,7 +409,7 @@ async def test_persistence_failure_never_reports_completed(
 async def test_modified_files_and_broken_sink(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    store = ProjectStore(tmp_path)
+    store = ProjectStore(tmp_path / "projects")
     project = store.create("Diff", "")
     workspace = store.load_workspace(project.id)
     workspace.write("index.html", "<html>old</html>")
@@ -351,12 +420,11 @@ async def test_modified_files_and_broken_sink(
         raise ConnectionError("gone")
 
     manager.attach_sink(project.id, broken_sink)
-    _install_fake_session(monkeypatch, [
-        ProviderTurn(assistant_text="", tool_calls=[ToolCall(
-            id="edit", name="create_file", arguments={"content": "<html>new</html>"}
-        )]),
-        ProviderTurn(assistant_text="Updated", tool_calls=[]),
-    ])
+    _install_delegation(
+        monkeypatch,
+        [ProviderTurn(assistant_text="Updated", tool_calls=[])],
+        specialist_content="<html>new</html>",
+    )
     run_id = await manager.start_run(
         project.id, RunRequest(text="Update", settings={"openAiApiKey": "k"})
     )
@@ -365,5 +433,5 @@ async def test_modified_files_and_broken_sink(
     assert record is not None
     assert record["status"] == "completed"
     assert record["files_changed"] == ["index.html"]
-    events = manager._event_buffers[project.id]
+    events = manager.journal.read(project.id)
     assert [event["sequence"] for event in events] == list(range(1, len(events) + 1))

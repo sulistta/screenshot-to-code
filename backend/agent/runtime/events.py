@@ -7,11 +7,29 @@ internals. Each subclass carries its wire discriminator as the ``type``
 default so emitters never pass it manually.
 """
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 def _empty_tool_input() -> Dict[str, Any]:
     return {}
+
+
+def _empty_paths() -> List[str]:
+    return []
+
+
+@dataclass
+class AgentIdentity:
+    """Stable identity for the agent that produced an event.
+
+    The coordinator is the zero agent; specialists get short run-scoped ids
+    and human names assigned at delegation time.
+    """
+
+    agent_id: str = "coordinator"
+    name: str = "Coordinator"
+    role: str = "coordinator"
+    parent_agent_id: Optional[str] = None
 
 
 @dataclass
@@ -19,6 +37,21 @@ class RunEvent:
     """Base for run events; ``type`` is the discriminator sent on the wire."""
 
     type: str = ""
+    # Who produced this event. Transports merge it into the wire payload so
+    # the UI can attribute activity, states and results per agent.
+    agent: Optional[AgentIdentity] = None
+
+
+@dataclass
+class AgentLifecycleEvent(RunEvent):
+    """Explicit specialist lifecycle transitions (queued/started/finished)."""
+
+    type: str = "agent_status"
+    status: str = ""  # "queued" | "working" | "verifying" | "completed" | "failed" | "cancelled"
+    objective: str = ""
+    file_paths: List[str] = field(default_factory=_empty_paths)
+    summary: str = ""
+    error: Optional[str] = None
 
 
 @dataclass

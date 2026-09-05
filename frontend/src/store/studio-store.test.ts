@@ -38,7 +38,6 @@ describe("studio store event handling", () => {
       config: {
         primary_model: "gpt-5.5 (no thinking)",
         subagent_model: "",
-        execution_mode: "single",
       },
     });
     handleEvent({ type: "assistant_delta", text: "Built it." });
@@ -133,6 +132,43 @@ describe("studio store event handling", () => {
     handleEvent({ type: "run_status", status: "waiting_for_user" });
     expect(useStudioStore.getState().lastOutcome).toBeNull();
     expect(useStudioStore.getState().activity).toHaveLength(1);
+  });
+
+  it("tracks the team lifecycle with identity and states", () => {
+    const { handleEvent } = useStudioStore.getState();
+    handleEvent({ type: "agent_status", agentId: "coordinator", name: "Nora", role: "coordinator", status: "working", objective: "Build it" });
+    handleEvent({ type: "agent_status", agentId: "agent-1", name: "Theo", role: "backend", status: "queued", objective: "Build API", filePaths: ["api.py"] });
+    handleEvent({ type: "agent_status", agentId: "agent-1", name: "Theo", role: "backend", status: "working" });
+    const { team } = useStudioStore.getState();
+    expect(team["coordinator"]).toMatchObject({ name: "Nora", status: "working" });
+    expect(team["agent-1"]).toMatchObject({ name: "Theo", status: "working", objective: "Build API" });
+    handleEvent({ type: "agent_status", agentId: "agent-1", name: "Theo", role: "backend", status: "completed", summary: "API built" });
+    expect(useStudioStore.getState().team["agent-1"]).toMatchObject({
+      status: "completed", summary: "API built",
+    });
+  });
+
+  it("attributes specialist tool events to the agent, not the coordinator", () => {
+    const { handleEvent } = useStudioStore.getState();
+    handleEvent({ type: "agent_status", agentId: "agent-1", name: "Theo", role: "backend", status: "working" });
+    handleEvent({ type: "tool_start", agentId: "agent-1", tool: "create_file", input: { path: "api.py" } });
+    handleEvent({ type: "tool_result", agentId: "agent-1", tool: "create_file", ok: true, input: { path: "api.py" } });
+    const state = useStudioStore.getState();
+    // Specialist actions never land in the coordinator's activity list.
+    expect(state.activity).toHaveLength(0);
+    expect(state.team["agent-1"].files).toEqual(["api.py"]);
+    expect(state.team["agent-1"].currentAction).toBe("Created api.py");
+  });
+
+  it("resets the run views when a new coordinator starts", () => {
+    const { handleEvent } = useStudioStore.getState();
+    handleEvent({ type: "agent_status", agentId: "coordinator", name: "Nora", role: "coordinator", status: "working" });
+    handleEvent({ type: "assistant_delta", text: "leftover" });
+    handleEvent({ type: "agent_status", agentId: "coordinator", name: "Nora", role: "coordinator", status: "completed" });
+    handleEvent({ type: "agent_status", agentId: "coordinator", name: "Nora", role: "coordinator", status: "working", objective: "next run" });
+    const state = useStudioStore.getState();
+    expect(state.activity).toHaveLength(0);
+    expect(state.team["coordinator"].objective).toBe("next run");
   });
 });
 

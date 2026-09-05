@@ -1,5 +1,7 @@
 {
   "exclude": ["image_generation.py", ".venv", "**/node_modules", "**/__pycache__"],
+  "venvPath": ".",
+  "venv": ".venv",
   "typeCheckingMode": "basic",
   "reportMissingTypeStubs": "none",
   "reportUnknownVariableType": "warning"

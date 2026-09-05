@@ -59,3 +59,17 @@ class EventJournal:
         return [{**json.loads(payload), "projectId": project_id,
                  "streamId": self.stream_id, "sequence": sequence}
                 for sequence, payload in rows]
+
+    def prune(self, project_id: str, keep: int = 1000) -> None:
+        """Retention: keep only the newest `keep` events of a project."""
+        with self.connection() as db:
+            db.execute(
+                "DELETE FROM events WHERE project_id=? AND sequence NOT IN "
+                "(SELECT sequence FROM events WHERE project_id=? "
+                "ORDER BY sequence DESC LIMIT ?)",
+                (project_id, project_id, keep),
+            )
+
+    def delete_project(self, project_id: str) -> None:
+        with self.connection() as db:
+            db.execute("DELETE FROM events WHERE project_id=?", (project_id,))

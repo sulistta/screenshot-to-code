@@ -97,3 +97,13 @@ class ProjectDatabase:
     def delete_project(self, project_id: str) -> None:
         with self.engine.begin() as connection:
             connection.execute(documents.delete().where(documents.c.path.startswith(project_id + "/")))
+
+    def list_prefix(self, prefix: str) -> list[tuple[str, Any]]:
+        """Documents whose path starts with prefix, as (relative path, value)."""
+        with self.engine.connect() as connection:
+            rows = connection.execute(
+                select(documents.c.path, documents.c.payload).where(
+                    documents.c.path.startswith(prefix)
+                ).order_by(documents.c.path)
+            ).fetchall()
+        return [(str(path), json.loads(payload)) for path, payload in rows]

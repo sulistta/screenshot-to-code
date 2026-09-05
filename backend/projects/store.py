@@ -40,8 +40,6 @@ class ProjectMeta:
     # Execution configuration; "" means "let the runtime resolve".
     primary_model: str = ""
     subagent_model: str = ""
-    # "auto" | "single" | "swarm"
-    execution_mode: str = "auto"
 
     def to_json(self) -> Dict[str, str]:
         return asdict(self)
@@ -97,7 +95,6 @@ class ProjectStore:
             updated_at=data.get("updated_at", ""),
             primary_model=data.get("primary_model", ""),
             subagent_model=data.get("subagent_model", ""),
-            execution_mode=data.get("execution_mode", "auto"),
         )
 
     def list(self) -> List[ProjectMeta]:
@@ -116,7 +113,6 @@ class ProjectStore:
         brief: Optional[str] = None,
         primary_model: Optional[str] = None,
         subagent_model: Optional[str] = None,
-        execution_mode: Optional[str] = None,
     ) -> ProjectMeta:
         meta = self.get(project_id)
         if name is not None and name.strip():
@@ -127,10 +123,6 @@ class ProjectStore:
             meta.primary_model = primary_model.strip()
         if subagent_model is not None:
             meta.subagent_model = subagent_model.strip()
-        if execution_mode is not None:
-            if execution_mode not in ("auto", "single", "swarm"):
-                raise ValueError(f"Invalid execution mode: {execution_mode}")
-            meta.execution_mode = execution_mode
         meta.updated_at = _now_iso()
         self._write_meta(meta)
         return meta
@@ -188,6 +180,115 @@ class ProjectStore:
             self._dir(project_id) / "workspace-state.json",
             {"version": 1, "revision": revision},
         )
+        self.gc_workspaces(project_id, keep=2)
+
+    def gc_workspaces(self, project_id: str, keep: int = 2) -> None:
+        """Delete snapshot generations no longer referenced by the pointer.
+
+        Snapshots are written fully and verified before the pointer commit, so
+        a crash can only leave an orphan directory — safe to collect here.
+        Recently replaced generations stay around for in-flight FileResponses.
+        """
+        state_path = self._dir(project_id) / "workspace-state.json"
+        referenced: set[str] = set()
+        if state_path.exists():
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            if isinstance(state.get("revision"), str):
+                referenced.add(state["revision"])
+        snapshots = self._dir(project_id) / "workspaces"
+        if not snapshots.exists():
+            return
+        generations = sorted(
+            (p for p in snapshots.iterdir()
+             if p.is_dir() and re.fullmatch(r"[a-f0-9]{32}", p.name)),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        for index, generation in enumerate(generations):
+            if generation.name in referenced or index < keep:
+                continue
+            shutil.rmtree(generation, ignore_errors=True)
+            (snapshots / f"{generation.name}.manifest.json").unlink(missing_ok=True)
+
+    # --- failure drafts ----------------------------------------------------------
+    #
+    # A failed or cancelled run must not replace the last working workspace.
+    # Its partial files go to a per-run draft, recoverable through
+    # restore_draft (which publishes it as a new workspace generation).
+
+    def save_draft(
+        self,
+        project_id: str,
+        run_id: str,
+        workspace: Workspace,
+        *,
+        binary_source: Optional[Path] = None,
+    ) -> Optional[Dict[str, object]]:
+        """Persist partial run output as a recoverable draft; never live."""
+        self.get(project_id)
+        self._validate_id(run_id)
+        drafts = self._dir(project_id) / "drafts"
+        staging = drafts / f".staging-{uuid.uuid4().hex}"
+        destination = drafts / run_id
+        if destination.exists():
+            shutil.rmtree(destination)
+        self._write_snapshot(project_id, staging / "files", workspace, binary_source=binary_source)
+        record: Dict[str, object] = {
+            "run_id": run_id,
+            "revision": uuid.uuid4().hex,
+            "saved_at": _now_iso(),
+            "files": sorted(workspace.files.keys()),
+        }
+        atomic_json(staging / "draft.json", record)
+        atomic_json(staging / "manifest.json", self.manifest(staging / "files"))
+        staging.rename(destination)
+        sync_directory(drafts)
+        self.prune_drafts(project_id, keep=5)
+        return record
+
+    def list_drafts(self, project_id: str) -> List[Dict[str, object]]:
+        drafts = self._dir(project_id) / "drafts"
+        if not drafts.exists():
+            return []
+        records: List[Dict[str, object]] = []
+        for path in sorted(drafts.glob("*/draft.json")):
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                records.append(loaded)
+        return records
+
+    def restore_draft(self, project_id: str, run_id: str) -> Dict[str, object]:
+        """Publish a saved draft as the live workspace (new generation)."""
+        self.get(project_id)
+        self._validate_id(run_id)
+        draft = self._dir(project_id) / "drafts" / run_id
+        if not (draft / "draft.json").exists():
+            raise FileNotFoundError(run_id)
+        workspace = Workspace()
+        files_dir = draft / "files"
+        if files_dir.exists():
+            for file_path in sorted(files_dir.rglob("*")):
+                if file_path.is_symlink() or not file_path.is_file():
+                    continue
+                relative = file_path.relative_to(files_dir).as_posix()
+                try:
+                    workspace.files[relative] = file_path.read_text(encoding="utf-8")
+                except UnicodeDecodeError:
+                    continue
+        self.save_workspace(project_id, workspace, binary_source=files_dir)
+        return {"restored": run_id}
+
+    def prune_drafts(self, project_id: str, keep: int = 5) -> None:
+        drafts = self._dir(project_id) / "drafts"
+        if not drafts.exists():
+            return
+        candidates = sorted(
+            (p for p in drafts.iterdir() if p.is_dir() and not p.name.startswith(".")),
+            key=lambda p: (p / "draft.json").stat().st_mtime if (p / "draft.json").exists() else 0,
+            reverse=True,
+        )
+        for stale in candidates[keep:]:
+            shutil.rmtree(stale, ignore_errors=True)
 
     def _workspace_root(self, project_id: str) -> Path:
         project_dir = self._dir(project_id)

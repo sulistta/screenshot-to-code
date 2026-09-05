@@ -49,7 +49,6 @@ def _meta_json(meta: Any) -> Dict[str, Any]:
         "updatedAt": meta.updated_at,
         "primaryModel": meta.primary_model,
         "subagentModel": meta.subagent_model,
-        "executionMode": meta.execution_mode,
         "favorite": bool(options.get("favorite", False)),
         "archived": bool(options.get("archived", False)),
         "trashed": bool(options.get("trashed", False)),
@@ -88,7 +87,6 @@ async def update_project(project_id: str, body: Dict[str, Any]) -> Dict[str, Any
             brief=body.get("brief"),
             primary_model=body.get("primaryModel"),
             subagent_model=body.get("subagentModel"),
-            execution_mode=body.get("executionMode"),
         )
     except ProjectNotFoundError:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -99,12 +97,14 @@ async def update_project(project_id: str, body: Dict[str, Any]) -> Dict[str, Any
 
 @router.delete("/api/projects/{project_id}", status_code=204)
 async def delete_project(project_id: str) -> None:
-    if get_manager().active_run_id(project_id) is not None:
+    manager = get_manager()
+    if manager.active_run_id(project_id) is not None:
         raise HTTPException(status_code=409, detail="Stop the active run before deleting this project")
     try:
-        get_manager().store.delete(project_id)
+        manager.store.delete(project_id)
     except ProjectNotFoundError:
         raise HTTPException(status_code=404, detail="Project not found")
+    manager.journal.delete_project(project_id)
 
 
 @router.get("/api/projects/{project_id}/transcript")
