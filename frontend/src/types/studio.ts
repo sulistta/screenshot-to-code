@@ -81,7 +81,6 @@ export interface StudioRunEvent {
     | "set_code"
     | "question"
     | "status"
-    | "swarm_agent"
     | "agent_status"
     | "run_status";
   runId?: string;

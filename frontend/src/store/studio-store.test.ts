@@ -7,6 +7,7 @@ describe("studio store event handling", () => {
       activeProjectId: "p1",
       transcript: [],
       activity: [],
+      team: {},
       previewContent: null,
       previewNonce: 0,
       runStatus: null,

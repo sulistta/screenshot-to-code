@@ -293,16 +293,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       return;
     }
 
-    if (event.type === "swarm_agent") {
-      // Legacy wire event (pre-identity protocol); rendered as a plain line.
-      set((current) => ({ activity: [...current.activity, {
-        id: nextActivityId(), kind: "tool", toolName: "spawn_agent",
-        toolDetail: `${event.agent ?? "Specialist"}: ${event.eventType ?? "working"}`,
-        ok: true, text: "",
-      }] }));
-      return;
-    }
-
     // Specialist-attributed tool/status events feed that agent's panel and
     // its readable current action; they are not coordinator activity.
     if (event.agentId) {
