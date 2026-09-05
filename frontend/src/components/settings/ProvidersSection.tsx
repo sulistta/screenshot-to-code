@@ -101,7 +101,7 @@ function ProvidersSection({ settings, setSettings }: Props) {
   return (
     <div className="space-y-6">
       {/* Built-in providers */}
-      <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
+      <div className="settings-section">
         <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
           <h2 className="text-sm font-medium text-gray-900 dark:text-white">
             Built-in providers
@@ -125,6 +125,7 @@ function ProvidersSection({ settings, setSettings }: Props) {
               </div>
               <Input
                 id={row.key}
+                aria-label={row.placeholder}
                 type="password"
                 autoComplete="off"
                 className="mt-2"
@@ -142,7 +143,7 @@ function ProvidersSection({ settings, setSettings }: Props) {
 
       {/* Custom providers */}
       {!IS_RUNNING_ON_CLOUD && (
-        <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
+        <div className="settings-section">
           <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
             <h2 className="text-sm font-medium text-gray-900 dark:text-white">
               Custom providers
@@ -181,7 +182,7 @@ function ProvidersSection({ settings, setSettings }: Props) {
                           {provider.name}
                         </p>
                         {isActive && (
-                          <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:text-emerald-400">In use</span>
+                          <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:text-emerald-400">Selected</span>
                         )}
                         {!provider.enabled && (
                           <span className="rounded-full border px-1.5 py-0.5 text-[10px] text-muted-foreground">
@@ -230,8 +231,8 @@ function ProvidersSection({ settings, setSettings }: Props) {
             </div>
           )}
           <p className="px-4 py-3 text-xs text-gray-500 dark:text-zinc-400">
-            The provider in use generates every variant and replaces the
-            built-in keys.
+            Models from the selected provider are available in project model settings.
+            Built-in models remain available when their keys are configured.
           </p>
         </div>
       )}

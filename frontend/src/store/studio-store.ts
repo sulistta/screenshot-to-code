@@ -164,6 +164,10 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           event.sequence <= state.eventCursor.sequence) return;
       set({ eventCursor: { streamId: event.streamId, sequence: event.sequence } });
     }
+    if (event.type === "thinking_delta") return;
+    if (event.type === "tool_result" && state.activeQuestion && event.eventId === state.activeQuestion.questionId && event.ok !== false) {
+      set({ activeQuestion: null, runStatus: "running" });
+    }
     if (event.type === "user_message") {
       set((current) => ({ transcript: mergeMessages(current.transcript, [{
         role: "user", text: event.text ?? "", images: event.images ?? [],
@@ -188,7 +192,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           role: event.role ?? previous?.role ?? "specialist",
           parentAgentId: event.agentId === "coordinator"
             ? null
-            : previous?.parentAgentId ?? null,
+            : previous?.parentAgentId ?? "coordinator",
           status: asAgentStatus(event.status),
           objective: event.objective ?? previous?.objective ?? "",
           filePaths: event.filePaths ?? previous?.filePaths ?? [],
@@ -218,7 +222,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           currentRunId: event.runId ?? state.currentRunId,
           currentRunConfig: event.config ?? state.currentRunConfig,
           lastOutcome: null,
-          ...(newRun ? { activity: [], error: null } : {}),
+          ...(newRun ? { activity: [], team: {}, error: null } : {}),
         });
       }
       set((state) => {
@@ -262,7 +266,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
                   ])
                 : state.transcript,
             activity: [],
-            previewNonce: state.previewNonce + 1,
+            previewNonce: state.previewNonce + (status === "completed" ? 1 : 0),
             error: event.error ?? state.error,
           };
         }
@@ -322,8 +326,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       const activity = [...state.activity];
       const last = activity[activity.length - 1];
 
-      if (event.type === "thinking_delta" || event.type === "assistant_delta") {
-        const kind = event.type === "thinking_delta" ? "thinking" : "assistant";
+      if (event.type === "assistant_delta") {
+        const kind = "assistant";
         if (last && last.kind === kind && last.eventId === event.eventId) {
           // Streaming deltas accumulate on the last item of the same kind,
           // unless a tool item came between (then a new one starts).

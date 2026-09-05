@@ -201,7 +201,7 @@ function ProviderDialog({ open, onOpenChange, provider, onSave }: Props) {
           </DialogTitle>
           <DialogDescription className="text-xs">
             Any endpoint that speaks the OpenAI API. Credentials stay in this
-            browser and are sent to your local backend only.
+            browser and are sent through your backend to the configured provider.
           </DialogDescription>
         </DialogHeader>
 
@@ -391,6 +391,7 @@ function ProviderDialog({ open, onOpenChange, provider, onSave }: Props) {
                     }
                   />
                   <Input
+                    type="password"
                     placeholder="Value"
                     value={header.value}
                     onChange={(e) =>

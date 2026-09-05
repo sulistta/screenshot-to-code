@@ -43,6 +43,7 @@ export default function ProjectLibrary({ search, onSelect }: { search: string; o
       </form> : <button className="project-open" onClick={() => { navigate(`/projects/${project.id}`); onSelect(); }}>
         {project.favorite ? "★ " : ""}{project.name}
       </button>}
+      <time className="project-updated" dateTime={project.updatedAt}>{new Date(project.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</time>
       <details><summary aria-label={`Actions for ${project.name}`}>Actions</summary>
         <div className="project-actions">
           {project.trashed ? <button disabled={busy} onClick={() => change(project.id, { trashed: false })}>Restore project</button> : <>
@@ -58,6 +59,6 @@ export default function ProjectLibrary({ search, onSelect }: { search: string; o
         </div>
       </details>
     </article>)}
-    {visible.length === 0 && <p>No projects in this collection.</p>}
+    {visible.length === 0 && <p>{search ? "No matching projects. Try a different name." : filter === "trash" ? "Projects moved to trash can be restored here." : filter === "favorites" ? "Favorite a project to keep it close at hand." : filter === "archived" ? "Archived projects will be kept here." : "Start a project and it will appear here."}</p>}
   </div>;
 }

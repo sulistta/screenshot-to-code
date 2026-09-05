@@ -204,3 +204,43 @@ it("does not duplicate the reply when the terminal event replays", () => {
   const { transcript } = useStudioStore.getState();
   expect(transcript.filter((m) => m.role === "assistant")).toHaveLength(1);
 });
+
+describe("truthful redesigned runtime presentation", () => {
+  beforeEach(() => useStudioStore.getState().setActiveProject("p1"));
+  it("does not retain private thinking in display state", () => {
+    useStudioStore.getState().handleEvent({ type: "thinking_delta", text: "private deliberation" });
+    expect(useStudioStore.getState().activity).toEqual([]);
+  });
+  it("clears a replayed question only after its own successful tool result", () => {
+    const { handleEvent } = useStudioStore.getState();
+    handleEvent({ type: "question", questionId: "q", question: "Direction?" });
+    handleEvent({ type: "tool_result", eventId: "unrelated", ok: true });
+    expect(useStudioStore.getState().activeQuestion?.questionId).toBe("q");
+    handleEvent({ type: "tool_result", eventId: "q", ok: false });
+    expect(useStudioStore.getState().runStatus).toBe("waiting_for_user");
+    handleEvent({ type: "tool_result", eventId: "q", ok: true });
+    expect(useStudioStore.getState().activeQuestion).toBeNull();
+    expect(useStudioStore.getState().runStatus).toBe("running");
+  });
+  it("keeps the saved preview mounted after a failed or stopped update", () => {
+    const before = useStudioStore.getState().previewNonce;
+    const { handleEvent } = useStudioStore.getState();
+    handleEvent({ type: "run_status", runId: "a", status: "failed" });
+    handleEvent({ type: "run_status", runId: "b", status: "cancelled" });
+    expect(useStudioStore.getState().previewNonce).toBe(before);
+  });
+  it("removes old specialists at the start of the next run", () => {
+    const { handleEvent } = useStudioStore.getState();
+    handleEvent({ type: "agent_status", agentId: "old", status: "completed" });
+    handleEvent({ type: "run_status", status: "running", runId: "new" });
+    expect(useStudioStore.getState().team).toEqual({});
+  });
+});
+
+it("does not resurrect a completed run for an unidentified tool result", () => {
+  useStudioStore.getState().setActiveProject("p1");
+  const { handleEvent } = useStudioStore.getState();
+  handleEvent({ type: "run_status", status: "completed", runId: "closed" });
+  handleEvent({ type: "tool_result", ok: true });
+  expect(useStudioStore.getState().runStatus).toBe("completed");
+});

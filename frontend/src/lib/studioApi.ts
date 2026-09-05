@@ -185,3 +185,10 @@ export function projectSocketUrl(projectId: string): string {
 }
 
 export type { StudioRunEvent };
+
+export async function answerQuestion(projectId: string, questionId: string, answer: string): Promise<void> {
+  const response = await fetch(`${HTTP_BASE}/api/projects/${projectId}/answer`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ questionId, answer }),
+  });
+  if (!response.ok) throw await failure(response, "The answer could not be delivered. Try again.");
+}

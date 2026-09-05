@@ -23,6 +23,7 @@ export default function ModelPicker({
   settings,
 }: ModelPickerProps) {
   const [open, setOpen] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [entries, setEntries] = useState<ModelOption[]>([]);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
@@ -30,7 +31,7 @@ export default function ModelPicker({
     fetch("/api/models")
       .then((response) => (response.ok ? response.json() : { models: [] }))
       .then((data) => setEntries(data.models ?? []))
-      .catch(() => undefined);
+      .catch(() => setLoadFailed(true));
   }, []);
 
   const options = buildModelOptions(entries, settings);
@@ -52,7 +53,7 @@ export default function ModelPicker({
       <PopoverTrigger asChild>
         <button
           ref={triggerRef}
-          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 -mx-1.5 text-[11px] text-foreground/80 hover:bg-secondary transition-colors"
+          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 -mx-1.5 text-sm text-foreground/80 hover:bg-secondary transition-colors"
           title={`${label} model`}
         >
           <span className="text-muted-foreground">{label}</span>
@@ -64,11 +65,12 @@ export default function ModelPicker({
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        className="w-72 p-1.5 max-h-[320px] overflow-y-auto"
+        className="w-72 p-1.5 max-h-[min(420px,70vh)] overflow-y-auto"
       >
-        <div className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        <div className="px-2 py-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
           {label} model
         </div>
+        {options.length === 0 && <p className="p-2 text-xs text-muted-foreground">{loadFailed ? "Models could not be loaded. Check your connection." : "No models configured. Add a provider in Studio settings."}</p>}
         {[...groups.entries()].map(([group, groupOptions]) => (
           <div key={group} className="mb-1 last:mb-0">
             {group !== "Default" && (
@@ -92,7 +94,7 @@ export default function ModelPicker({
                   }}
                 >
                   <span className="truncate">
-                    {option.value ? modelDisplayName(option.value) : "Best available"}
+                    {option.value ? modelDisplayName(option.value) : placeholder ?? "Best available"}
                   </span>
                   {selected && (
                     <IoCheckmarkSharp className="h-3.5 w-3.5 shrink-0 text-emerald-600" />

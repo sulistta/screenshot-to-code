@@ -1,63 +1,34 @@
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { useStudioStore } from "@/store/studio-store";
+import { answerQuestion } from "@/lib/studioApi";
 
-export function QuestionCard({ send }: { send: (payload: Record<string, unknown>) => void }) {
-  const { activeQuestion, handleEvent, setError } = useStudioStore();
+export default function QuestionCard({ projectId }: { projectId: string }) {
+  const question = useStudioStore((state) => state.activeQuestion);
   const [answer, setAnswer] = useState("");
-  if (!activeQuestion) return null;
-
-  const submit = (value: string) => {
-    if (!value.trim()) return;
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+  if (!question) return null;
+  const submit = async (value: string) => {
+    if (!value.trim() || sending) return;
+    setSending(true); setError("");
     try {
-      send({
-        type: "answer",
-        answer: value,
-        questionId: activeQuestion.questionId,
-      });
-      handleEvent({ type: "run_status", status: "running" });
-      setAnswer("");
-    } catch (error) {
-      setError(error instanceof Error ? error.message : String(error));
-    }
+      await answerQuestion(projectId, question.questionId, value.trim());
+      // A successful response is an authoritative acknowledgement of delivery.
+      const state = useStudioStore.getState();
+      if (state.activeProjectId === projectId && state.activeQuestion?.questionId === question.questionId) {
+        state.handleEvent({ type: "run_status", projectId, status: "running" });
+      }
+    } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)); setSending(false); }
   };
-
-  return (
-    <div className="rounded-md border border-amber-500/40 bg-amber-500/[0.06] p-3 space-y-2.5">
-      <div className="text-sm font-medium">{activeQuestion.question}</div>
-      <p className="text-xs text-muted-foreground">Choose one of the four suggestions, or write your own answer.</p>
-      {activeQuestion.options && activeQuestion.options.length > 0 && (
-        <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-          {activeQuestion.options.map((option) => (
-            <Button
-              key={option}
-              size="sm"
-              variant="outline"
-              className="h-auto min-h-9 justify-start whitespace-normal text-left text-xs"
-              onClick={() => submit(option)}
-            >
-              {option}
-            </Button>
-          ))}
-        </div>
-      )}
-      <div className="flex gap-1.5">
-        <Input
-          value={answer}
-          onChange={(event) => setAnswer(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") submit(answer);
-          }}
-          placeholder="Other answer (optional)"
-          className="h-8 text-sm"
-        />
-        <Button size="sm" className="h-8" onClick={() => submit(answer)}>
-          Reply
-        </Button>
-      </div>
-    </div>
-  );
+  return <section className="question-surface" aria-labelledby="question-title">
+    <div className="question-label" role="status">Your input is needed</div>
+    <h2 id="question-title">{question.question}</h2>
+    <p>Choose a direction, or write your own answer to continue.</p>
+    <div className="question-options">{question.options?.map((option, index) => <button key={option} disabled={sending} onClick={() => void submit(option)}><span aria-hidden="true">{index + 1}</span>{option}</button>)}</div>
+    <form className="question-answer" onSubmit={(event) => { event.preventDefault(); void submit(answer); }}>
+      <input aria-label="Your answer" value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="Your own direction…" disabled={sending} />
+      <button className="primary-action" disabled={sending || !answer.trim()}>{sending ? "Sending…" : "Answer"}</button>
+    </form>
+    {error && <p className="inline-error" role="alert">{error}</p>}
+  </section>;
 }
-
-export default QuestionCard;
