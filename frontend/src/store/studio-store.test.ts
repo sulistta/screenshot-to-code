@@ -170,8 +170,9 @@ describe("studio store event handling", () => {
     handleEvent({ type: "tool_start", agentId: "agent-1", tool: "create_file", input: { path: "api.py" } });
     handleEvent({ type: "tool_result", agentId: "agent-1", tool: "create_file", ok: true, input: { path: "api.py" } });
     const state = useStudioStore.getState();
-    // Specialist actions never land in the coordinator's activity list.
-    expect(state.activity).toHaveLength(0);
+    // Specialist activity remains attributable and separate from coordinator messages.
+    expect(state.activity.filter((item) => !item.agentId)).toHaveLength(0);
+    expect(state.activity[0].agentId).toBe("agent-1");
     expect(state.team["agent-1"].files).toEqual(["api.py"]);
     expect(state.team["agent-1"].currentAction).toBe("Created api.py");
   });
@@ -221,4 +222,21 @@ it("keeps completed run details, clears the next team and deduplicates replay", 
   store.getState().handleEvent({ type: "run_status", runId: "r2", status: "running", streamId: "detail-project", sequence: 5 });
   expect(store.getState().team).toEqual({});
   expect(store.getState().completedRuns[0].filesChanged).toEqual(["index.html"]);
+});
+
+
+test("preserves interleaved specialist reasoning and scopes tool results to their agent", () => {
+  useStudioStore.setState({ activity: [], team: {}, currentRunId: null });
+  const emit = useStudioStore.getState().handleEvent;
+  emit({ type: "thinking_delta", text: "Main" });
+  emit({ type: "thinking_delta", agentId: "builder", text: "Inspect " });
+  emit({ type: "thinking_delta", agentId: "builder", text: "files" });
+  emit({ type: "tool_start", agentId: "builder", name: "read_file", eventId: "same" });
+  emit({ type: "tool_start", name: "read_file", eventId: "same" });
+  emit({ type: "tool_result", agentId: "builder", eventId: "same", ok: true });
+  const items = useStudioStore.getState().activity;
+  expect(items[0].text).toBe("Main");
+  expect(items[1]).toMatchObject({ agentId: "builder", text: "Inspect files" });
+  expect(items[2].ok).toBe(true);
+  expect(items[3].ok).toBeUndefined();
 });

@@ -1,3 +1,4 @@
+import { useShallow } from "zustand/react/shallow";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { listProjects, updateProject } from "@/lib/studioApi";
@@ -19,7 +20,7 @@ export default function ProjectLibrary({
   collection: ProjectCollection;
   onCollectionChange: (collection: ProjectCollection) => void;
 }) {
-  const { projects, activeProjectId, setProjects, setError } = useStudioStore();
+  const { projects, activeProjectId, setProjects, setError } = useStudioStore(useShallow((s) => ({ projects: s.projects, activeProjectId: s.activeProjectId, setProjects: s.setProjects, setError: s.setError })));
   const navigate = useNavigate();
   const [editing, setEditing] = useState<string | null>(null);
   const [name, setName] = useState("");

@@ -1,10 +1,11 @@
+import { useShallow } from "zustand/react/shallow";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useStudioStore } from "@/store/studio-store";
 
 export function QuestionCard({ send }: { send: (payload: Record<string, unknown>) => Promise<void> }) {
-  const { activeQuestion, handleEvent, setError } = useStudioStore();
+  const { activeQuestion, handleEvent, setError } = useStudioStore(useShallow((s) => ({ activeQuestion: s.activeQuestion, handleEvent: s.handleEvent, setError: s.setError })));
   const [answer, setAnswer] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const inFlight = useRef(false);

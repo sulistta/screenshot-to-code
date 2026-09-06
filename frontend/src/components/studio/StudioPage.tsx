@@ -1,3 +1,4 @@
+import { useShallow } from "zustand/react/shallow";
 import { native } from "@/lib/native";
 import type { StudioProject } from "@/types/studio";
 import StudioWorkbench from "./StudioWorkbench";
@@ -56,7 +57,7 @@ export default function StudioPage() {
     setTranscript,
     error,
     setError,
-  } = useStudioStore();
+  } = useStudioStore(useShallow((s) => ({ projects: s.projects, activeProjectId: s.activeProjectId, setProjects: s.setProjects, setActiveProject: s.setActiveProject, setTranscript: s.setTranscript, error: s.error, setError: s.setError })));
   const [settings, setSettings, settingsMeta] = usePersistedState<Settings>(
     DEFAULT_SETTINGS,
     "setting"
@@ -207,7 +208,7 @@ function ForgeSidebar({
   onSettings: () => void;
   atHome: boolean;
 }) {
-  const { setError, setProjects } = useStudioStore();
+  const { setError, setProjects } = useStudioStore(useShallow((s) => ({ setError: s.setError, setProjects: s.setProjects })));
   const navigate = useNavigate();
   return (
     <aside className="forge-sidebar" aria-label="Projects">
@@ -345,7 +346,8 @@ type ResultLayout = "conversation" | "split" | "result";
 function ProjectDetail({ project, settings }: { project: StudioProject; settings: Settings }) {
   const handleEvent = useStudioStore((s) => s.handleEvent);
   const { send, connected } = useProjectEvents(project.id, handleEvent);
-  const [details, setDetails] = useState(false);
+  const [panel, setPanel] = useState<"result" | "agents">("result");
+  const showAgents = () => { setPanel("agents"); changeLayout("split"); };
   const [layout, setLayout] = useState<ResultLayout>(() => {
     const saved = sessionStorage.getItem(`result-layout:${project.id}`);
     return saved === "split" || saved === "result" ? saved : "conversation";
@@ -384,26 +386,22 @@ function ProjectDetail({ project, settings }: { project: StudioProject; settings
       <h1 title={project.name}>{project.name}</h1>
       <div className="workspace-actions">
         {layout !== "conversation" && <button onClick={() => changeLayout("conversation")}>Overview</button>}
-        {layout === "conversation" && <button onClick={() => changeLayout("split")}>Show result</button>}
-        {layout === "split" && <button onClick={() => changeLayout("result")}>Expand result</button>}
+        {layout === "conversation" && <button onClick={() => { setPanel("result"); changeLayout("split"); }}>Show result</button>}
+        {layout === "split" && <button onClick={() => changeLayout("result")}>{panel === "agents" ? "Expand agents" : "Expand result"}</button>}
         {layout === "result" && <button onClick={() => changeLayout("split")}>Show overview</button>}
-        <button onClick={() => setDetails(true)}>Details</button>
+        <button aria-pressed={panel === "agents" && layout !== "conversation"} onClick={showAgents}>Agents</button>
       </div>
     </header>
     <div className="workspace-panels">
       <div className="workspace-conversation" aria-hidden={layout === "result" ? true : undefined}>
-        <ConversationColumn projectId={project.id} settings={settings} send={send} connected={connected} onDetails={() => setDetails(true)} />
+        <ConversationColumn projectId={project.id} settings={settings} send={send} connected={connected} onDetails={showAgents} />
       </div>
       <div className="workspace-result" aria-hidden={layout === "conversation" ? true : undefined}>
-        <StudioWorkbench projectId={project.id} />
+        <div className="workspace-panel-tabs" role="group" aria-label="Workspace panel"><button aria-pressed={panel === "result"} onClick={() => setPanel("result")}>Result</button><button aria-pressed={panel === "agents"} onClick={() => setPanel("agents")}>Agents</button><button aria-label="Close panel" onClick={() => changeLayout("conversation")}>×</button></div>
+        <div className="workspace-panel-body" hidden={panel !== "result"}><StudioWorkbench projectId={project.id} /></div>
+        <div className="workspace-panel-body" hidden={panel !== "agents"}><RunDetails visible={panel === "agents" && layout !== "conversation"} projectId={project.id} isApp={Boolean(files.data?.files["package.json"])} /></div>
       </div>
     </div>
-    <Dialog open={details} onOpenChange={setDetails}>
-      <DialogContent className="forge-details-dialog">
-        <DialogTitle>Project details</DialogTitle>
-        <DialogDescription>Activity, agents and saved changes, grouped by run.</DialogDescription>
-        <RunDetails projectId={project.id} isApp={Boolean(files.data?.files["package.json"])} />
-      </DialogContent>
-    </Dialog>
+
   </section>;
 }

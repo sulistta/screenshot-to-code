@@ -42,6 +42,18 @@ const provider = http.createServer(async (request, response) => {
   else if (!specialist && results.length === (ask ? 1 : 0)) call = { name: 'spawn_agent', arguments: JSON.stringify({ name: 'Builder', objective: 'Build a native test page', filePaths: ['index.html'] }) };
   response.writeHead(200, { 'Content-Type': 'text/event-stream' });
   const send = data => response.write(`data: ${JSON.stringify(data)}\n\n`);
+  send({ choices: [{ index: 0, delta: { reasoning_content: specialist ? 'Inspecting the page structure before creating the file. Checking the existing content and preserving the project architecture. Preparing the layout and verifying the required interactions. The saved result will remain available while the next changes are applied.' : 'Reviewing the request and choosing the next step.' } }] });
+  if (specialist) {
+    await delay(250);
+    send({ choices: [{ index: 0, delta: { reasoning_content: ' Continuing from the earlier analysis without replacing it.' } }] });
+  }
+  await delay(specialist ? 1800 : 100);
+  if (specialist && results.length === 0) {
+    for (let chunk = 0; chunk < 2000; chunk++) {
+      send({ choices: [{ index: 0, delta: { reasoning_content: ' checking layout' } }] });
+      if (chunk % 25 === 0) await delay(10);
+    }
+  }
   if (call) {
     const midpoint = Math.floor(call.arguments.length / 2);
     send({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call-test', type: 'function', function: { name: call.name, arguments: call.arguments.slice(0, midpoint) } }] } }] });
@@ -213,8 +225,23 @@ try {
     await shot('/tmp/forge-settings-running.png');
     await clickText('button', 'Close', '[role="dialog"]');
     await shot('/tmp/forge-question.png');
+    await script('window.__frameGaps = []; window.__measureFrames = true; let previous = performance.now(); const measure = now => { window.__frameGaps.push(now - previous); previous = now; if (window.__measureFrames) requestAnimationFrame(measure); }; requestAnimationFrame(measure);');
     await clickText('button', 'Blue');
+    await until(() => script('return document.querySelector(".thinking-stream")?.textContent.includes("Inspecting")'), 'live specialist thinking');
+    await delay(600);
+    assert.ok(await script('return document.querySelector(".thinking-lines").textContent.includes("Inspecting") && document.querySelector(".thinking-lines").textContent.includes("Continuing")'), 'earlier thinking remains after new deltas');
+    assert.ok(await script('return document.querySelector(".thinking-viewport").scrollTop > 0'), 'thinking moves upward');
+    assert.ok(await script('return new Set([...document.querySelectorAll(".thinking-line")].map(line => line.style.transform)).size > 1'), 'thinking lens varies width by position');
+    assert.equal(await script('return getComputedStyle(document.querySelector(".thinking-line")).textAlign'), 'left', 'thinking aligns to reading edge');
+    assert.ok(await script('return document.querySelector(".stage-work").clientWidth > 480'), 'thinking fills the stage width');
+    await shot('/tmp/forge-thinking.png');
     await until(async () => (await ipc('get_transcript', { projectId })).some(m => m.role === 'assistant' && m.runId === runId), 'generation completion');
+    const frames = await script('window.__measureFrames = false; return window.__frameGaps');
+    const sortedFrames = frames.slice().sort((a, b) => a - b);
+    const p95 = sortedFrames[Math.floor(sortedFrames.length * .95)];
+    console.log(`Streaming frame intervals: p95=${Math.round(p95)}ms, max=${Math.round(Math.max(...frames))}ms`);
+    assert.ok(p95 < 250, 'UI keeps rendering through a 2000-fragment burst');
+    assert.ok(await script('return document.querySelectorAll(".thinking-line").length <= 14'), 'bounded teleprompter DOM');
     const files = await ipc('get_files', { projectId });
     assert.match(files.files['index.html'], /Native generation passed/);
     assert.equal(files.files['notes.md'], 'Native persistence');
@@ -244,10 +271,11 @@ try {
     await clickText('button', 'Overview');
     assert.equal(await script('return !!document.querySelector(".layout-conversation")'), true);
     await clickText('button', 'Show result');
-    await clickText('button', 'Details');
+    await clickText('button', 'Agents');
     await until(() => script('return document.querySelector(".run-details")?.textContent.includes("Builder")'), 'completed agent details');
+    assert.equal(await script('return !!document.querySelector(".forge-details-dialog")'), false);
     await shot('/tmp/forge-details.png');
-    await clickText('button', 'Close', '[role="dialog"]');
+    await clickText('button', 'Result', '.workspace-panel-tabs');
     return { runId };
   });
 
@@ -355,5 +383,5 @@ try {
   driver?.kill(); wmProc?.kill();
   for (const socket of sockets) socket.destroy(); provider.close();
   await readFile('artifacts/native-smoke.png').catch(() => writeFile('artifacts/native-smoke.log', sanitize(driverLogs)).catch(() => {}));
-  await rm(scratch, { recursive: true, force: true });
+  await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }

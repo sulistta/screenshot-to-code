@@ -5,11 +5,11 @@ use crate::{
 use serde_json::{json, Value};
 use tauri::{ipc::Channel, State};
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_projects(state: State<'_, AppState>) -> Result<Vec<Project>> {
     state.lock()?.store.list()
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_project(state: State<'_, AppState>, name: String, brief: String) -> Result<Project> {
     let name = name.trim();
     if name.is_empty() || name.len() > 200 || brief.len() > 32000 {
@@ -19,7 +19,7 @@ pub fn create_project(state: State<'_, AppState>, name: String, brief: String) -
     state.lock()?.store.put(&doc)?;
     Ok(doc.project)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_project(
     state: State<'_, AppState>,
     project_id: String,
@@ -46,7 +46,7 @@ pub fn update_project(
     inner.store.put(&doc)?;
     Ok(doc.project)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_project(state: State<'_, AppState>, project_id: String) -> Result<()> {
     let mut inner = state.lock()?;
     AppState::ensure_idle(&inner, &project_id)?;
@@ -59,20 +59,20 @@ pub fn delete_project(state: State<'_, AppState>, project_id: String) -> Result<
         .map_err(store::err)?;
     tx.commit().map_err(store::err)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_transcript(state: State<'_, AppState>, project_id: String) -> Result<Vec<Value>> {
     Ok(state.lock()?.store.get(&project_id)?.transcript)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_iterations(state: State<'_, AppState>, project_id: String) -> Result<Vec<Value>> {
     Ok(state.lock()?.store.get(&project_id)?.iterations.into_iter().map(|it|json!({"id":it.id,"run_id":it.run_id,"label":it.label,"summary":it.summary,"created_at":it.created_at})).collect())
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_files(state: State<'_, AppState>, project_id: String) -> Result<Value> {
     let doc = state.lock()?.store.get(&project_id)?;
     Ok(json!({"revision":doc.revision,"files":doc.files}))
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn edit_file(
     state: State<'_, AppState>,
     project_id: String,
@@ -91,7 +91,7 @@ pub fn edit_file(
     inner.store.put(&doc)?;
     Ok(json!({"revision":doc.revision,"files":doc.files}))
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn revision_diff(
     state: State<'_, AppState>,
     project_id: String,
@@ -111,7 +111,7 @@ pub fn revision_diff(
     }).collect();
     Ok(json!({"changes":changes}))
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn restore_revision(
     state: State<'_, AppState>,
     project_id: String,
@@ -132,7 +132,7 @@ pub fn restore_revision(
     doc.commit(it.files, "", "Restored version")?;
     inner.store.put(&doc)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_project_options(
     state: State<'_, AppState>,
     project_id: String,
@@ -149,7 +149,7 @@ pub fn set_project_options(
     inner.store.put(&doc)?;
     Ok(doc.project)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn duplicate_project(state: State<'_, AppState>, project_id: String) -> Result<Project> {
     let inner = state.lock()?;
     let source = inner.store.get(&project_id)?;
@@ -162,7 +162,7 @@ pub fn duplicate_project(state: State<'_, AppState>, project_id: String) -> Resu
     inner.store.put(&doc)?;
     Ok(doc.project)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn restore_draft(state: State<'_, AppState>, project_id: String, run_id: String) -> Result<()> {
     let inner = state.lock()?;
     AppState::ensure_idle(&inner, &project_id)?;
@@ -174,7 +174,7 @@ pub fn restore_draft(state: State<'_, AppState>, project_id: String, run_id: Str
     doc.commit(files, "", "Restored partial work")?;
     inner.store.put(&doc)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn subscribe_project(
     state: State<'_, AppState>,
     project_id: String,
@@ -193,19 +193,19 @@ pub fn subscribe_project(
         .insert(subscription_id, (project_id, on_event));
     Ok(())
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn unsubscribe_project(state: State<'_, AppState>, subscription_id: String) -> Result<()> {
     state.lock()?.subscriptions.remove(&subscription_id);
     Ok(())
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn cancel_run(state: State<'_, AppState>, project_id: String) -> Result<()> {
     let inner = state.lock()?;
     let run = inner.runs.get(&project_id).ok_or("No active run")?;
     run.cancel.cancel();
     Ok(())
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn answer_question(
     state: State<'_, AppState>,
     project_id: String,

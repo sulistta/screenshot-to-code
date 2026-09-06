@@ -1,7 +1,9 @@
+import { useShallow } from "zustand/react/shallow";
 import { useState } from "react";
 import { FiArrowUpRight, FiCheck, FiImage, FiLayers } from "react-icons/fi";
 import { useStudioStore } from "@/store/studio-store";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import ThinkingStream from "./ThinkingStream";
 import QuestionCard from "./conversation/QuestionCard";
 import RunHandoff from "./conversation/RunHandoff";
 import { activityLabel } from "./conversation/activityLabel";
@@ -13,7 +15,7 @@ export default function CreationStage({ projectId, connected, send, onDetails }:
   send: (payload: Record<string, unknown>) => Promise<void>;
   onDetails?: () => void;
 }) {
-  const { transcript, activity, runStatus, activeQuestion, team, projects } = useStudioStore();
+  const { transcript, activity, runStatus, activeQuestion, team, projects } = useStudioStore(useShallow((s) => ({ transcript: s.transcript, activity: s.activity, runStatus: s.runStatus, activeQuestion: s.activeQuestion, team: s.team, projects: s.projects })));
   const [reference, setReference] = useState<string | null>(null);
   const request = [...transcript].reverse().find((message) => message.role === "user");
   const reply = [...transcript].reverse().find((message) => message.role === "assistant");
@@ -38,6 +40,7 @@ export default function CreationStage({ projectId, connected, send, onDetails }:
       <h2 key={title}>{title}</h2>
       {!activeQuestion && (working || !connected) && <p className="stage-caption" role="status" aria-live="polite">{phase}</p>}
       {activeQuestion ? <QuestionCard send={send} /> : working ? <div className="stage-work">
+        <ThinkingStream />
         {active ? <button className="stage-current-task" onClick={onDetails}>
           <span className="run-dot working" aria-hidden="true" /><span><strong>{active.name}</strong><span>{active.currentAction || active.objective}</span></span><FiArrowUpRight aria-hidden="true" />
         </button> : <div className="stage-placeholder" aria-label="Preparing the next step"><span /><span /><span /></div>}

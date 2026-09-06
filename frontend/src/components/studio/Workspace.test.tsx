@@ -55,3 +55,16 @@ it("reveals saved results once and respects a manual collapse after later update
   expect(container.querySelector(".layout-conversation")).toBeInTheDocument();
   expect(sessionStorage.getItem("result-layout:p")).toBe("conversation");
 });
+
+it("opens agent activity inline and retains the result when switching panels", async () => {
+  const { container } = setup();
+  await screen.findByRole("textbox", { name: "Message" });
+  const result = screen.getByText("Result pane");
+  fireEvent.click(within(container.querySelector(".workspace-actions") as HTMLElement).getByRole("button", { name: "Agents" }));
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(screen.getByRole("region", { name: "Parallel agent activity" })).toBeVisible();
+  expect(result).not.toBeVisible();
+  fireEvent.click(within(container.querySelector(".workspace-panel-tabs") as HTMLElement).getByRole("button", { name: "Result" }));
+  expect(screen.getByText("Result pane")).toBe(result);
+  expect(result).toBeVisible();
+});

@@ -2,7 +2,7 @@
  * pre-emit critique: P4 H4 E4 S4 R5 V4 */
 @import "../../../tokens.css";
 .studio-shell { display:grid; grid-template-columns:220px minmax(0,1fr); height:100dvh; width:100%; overflow:clip; background:var(--forge-paper); color:var(--forge-ink); font-family:var(--font-body); }
-.studio-shell :is(button,a,input,select,textarea):focus-visible, .forge-settings-dialog :focus-visible, .forge-details-dialog :focus-visible { outline:2px solid var(--forge-focus); outline-offset:3px; }
+.studio-shell :is(button,a,input,select,textarea):focus-visible, .forge-settings-dialog :focus-visible { outline:2px solid var(--forge-focus); outline-offset:3px; }
 .studio-shell button { transition:opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
 .studio-shell button:active:not(:disabled) { transform:translateY(1px); }
 .studio-shell button:disabled { opacity:.45; cursor:not-allowed; }
@@ -121,8 +121,7 @@
 .source-editor { flex:1; min-height:0; overflow:auto; }
 .source-editor .cm-editor { height:100%; }
 .history-workspace pre,.run-details pre { overflow:auto; font-family:var(--font-mono); font-size:11px; padding:var(--space-md); background:var(--forge-soft); border-radius:var(--radius-control); }
-.forge-settings-dialog,.forge-details-dialog { display:block; width:calc(100vw - 48px); max-width:960px; max-height:calc(100dvh - 80px); overflow:auto; background:var(--forge-paper); color:var(--forge-ink); border-color:var(--forge-border); border-radius:var(--radius-panel); padding:var(--space-2xl); }
-.forge-details-dialog { max-width:640px; }
+.forge-settings-dialog { display:block; width:calc(100vw - 48px); max-width:960px; max-height:calc(100dvh - 80px); overflow:auto; background:var(--forge-paper); color:var(--forge-ink); border-color:var(--forge-border); border-radius:var(--radius-panel); padding:var(--space-2xl); }
 .run-details { margin-top:var(--space-xl); }
 .run-detail { border-top:1px solid var(--forge-border); padding:var(--space-md) 0; }
 .run-detail summary { cursor:pointer; font-size:13px; padding:var(--space-sm) 0; }
@@ -161,7 +160,7 @@
   .forge-project-list { grid-column:1 / -1; max-height:96px; }
   .forge-main { flex:1; }
   .forge-topbar { padding:0 var(--space-sm); }
-  .forge-settings-dialog,.forge-details-dialog { width:calc(100vw - 16px); padding:var(--space-xl) var(--space-lg); }
+  .forge-settings-dialog { width:calc(100vw - 16px); padding:var(--space-xl) var(--space-lg); }
   .composer-models { gap:var(--space-xs) var(--space-md); }
   .composer-models > button span { max-width:100px; }
   .forge-new-project { padding-top:var(--space-lg); }
@@ -191,7 +190,7 @@
 .stage-mark > span { position:absolute; inset:-5px; border:1px solid var(--forge-accent); border-radius:18px; animation:stage-ripple 2.4s var(--ease-out) infinite; }
 .stage-focus > h2 { font-size:clamp(22px,2vw,30px); line-height:1.2; font-weight:550; max-width:480px; animation:forge-enter var(--dur-enter) var(--ease-out); }
 .stage-caption,.stage-guidance { color:var(--forge-muted); font-size:13px; line-height:1.7; max-width:420px; margin-top:var(--space-md); }
-.stage-work { width:100%; max-width:480px; margin-top:var(--space-xl); }
+.stage-work { width:100%; max-width:none; margin-top:var(--space-xl); }
 .stage-current-task { display:flex; align-items:center; gap:var(--space-md); text-align:left; width:100%; padding:var(--space-md) 0; border-top:1px solid var(--forge-border); }
 .stage-current-task > span:nth-child(2) { flex:1; min-width:0; }
 .stage-current-task strong { display:block; font-weight:500; font-size:12px; }
@@ -220,3 +219,29 @@
 @keyframes stage-ripple { from { transform:scale(.9); opacity:.45; } to { transform:scale(1.25); opacity:0; } }
 @keyframes stage-placeholder { 50% { opacity:.45; transform:scaleX(.92); } }
 @media (prefers-reduced-motion:reduce) { .stage-mark *, .stage-placeholder > span { animation:none!important; } .stage-mark > span { display:none; } }
+
+/* Live work: a readable lens at center, with a persistent parallel workspace. */
+.workspace-result { display:flex; flex-direction:column; }
+.workspace-panel-tabs { display:flex; gap:4px; padding:4px 8px 10px; border-bottom:1px solid var(--forge-border); }
+.workspace-panel-tabs button,.agent-filters button { padding:6px 10px; border-radius:8px; font-size:12px; color:var(--forge-muted); }
+.workspace-panel-tabs button[aria-pressed=true],.agent-filters button[aria-pressed=true] { background:var(--forge-soft); color:var(--forge-ink); }
+.workspace-panel-tabs button:last-child { margin-left:auto; }
+.workspace-panel-body { flex:1; min-height:0; overflow:hidden; }
+.workspace-panel-body[hidden] { display:none; }
+.agent-workspace { display:flex; flex-direction:column; height:100%; min-height:0; }
+.agent-panel-heading { padding:20px 16px 12px; }
+.agent-panel-heading h2 { font-size:16px; font-weight:600; }
+.agent-panel-heading p { font-size:12px; color:var(--forge-muted); margin-top:4px; }
+.agent-filters { display:flex; flex-wrap:wrap; gap:4px; padding:0 12px 12px; border-bottom:1px solid var(--forge-border); }
+.agent-workspace .run-details { flex:1; min-height:0; overflow:auto; margin:0; padding:12px 16px; overflow-wrap:anywhere; }
+.agent-chat-entry { padding:14px 0; border-top:1px solid var(--forge-border); animation:forge-enter 180ms var(--ease-out); }
+.agent-chat-entry header { display:flex; gap:10px; font-size:11px; font-weight:600; margin-bottom:7px; }
+.agent-chat-entry header span { color:var(--forge-muted); font-weight:400; }
+.agent-follow { align-self:center; padding:8px 16px; font-size:12px; }
+.thinking-stream { width:100%; min-width:0; margin:14px 0; }
+.thinking-heading { display:flex; justify-content:space-between; font-size:11px; color:var(--forge-muted); }
+.thinking-heading button { padding:2px 6px; }
+.thinking-viewport { font-size:14px; line-height:1.8; height:180px; overflow:auto; scrollbar-width:none; mask-image:linear-gradient(transparent,black 25%,black 75%,transparent); }
+.thinking-lines { padding:75px 0; }
+.thinking-line { text-align:left; font-size:14px; line-height:1.8; margin:0; white-space:pre-wrap; overflow-wrap:anywhere; transform-origin:center; }
+@media(prefers-reduced-motion:reduce) { .thinking-line { transform:none !important; opacity:1 !important; } .thinking-viewport { mask-image:none; scroll-behavior:auto; } }

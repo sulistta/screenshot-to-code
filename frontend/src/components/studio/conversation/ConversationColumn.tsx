@@ -1,3 +1,4 @@
+import { useShallow } from "zustand/react/shallow";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useStudioStore } from "@/store/studio-store";
 import { cancelRun, startRun, updateProject } from "@/lib/studioApi";
@@ -13,7 +14,7 @@ export function ConversationColumn({ projectId, settings, send, connected, onDet
   projectId: string; settings: Settings; onDetails?: () => void;
   send: (payload: Record<string, unknown>) => Promise<void>; connected: boolean;
 }) {
-  const { transcript, activity, runStatus, handleEvent, setError } = useStudioStore();
+  const { transcript, activity, runStatus, handleEvent, setError } = useStudioStore(useShallow((s) => ({ transcript: s.transcript, activity: s.activity, runStatus: s.runStatus, handleEvent: s.handleEvent, setError: s.setError })));
   const project = useStudioStore((s) => s.projects.find((p) => p.id === projectId));
   const [pending] = useState(() => loadPendingPrompt(projectId));
   const [draft, setDraft] = useState(() => sessionStorage.getItem(`conversation-draft:${projectId}`) || pending?.text || "");

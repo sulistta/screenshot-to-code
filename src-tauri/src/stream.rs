@@ -118,6 +118,13 @@ impl Accumulator {
                             append(message, "content", &delta["content"]);
                             emit(json!({"type":"assistant_delta","text":delta["content"]}));
                         }
+                        for field in ["reasoning_content", "reasoning"] {
+                            if delta[field].is_string() {
+                                append(message, field, &delta[field]);
+                                emit(json!({"type":"thinking_delta","text":delta[field]}));
+                                break;
+                            }
+                        }
                         if let Some(calls) = delta["tool_calls"].as_array() {
                             for call in calls {
                                 let index = call["index"].as_u64().unwrap_or(0) as usize + 1;
@@ -181,40 +188,106 @@ fn append(value: &mut Value, key: &str, part: &Value) {
         value[key] = json!(text);
     }
 }
+struct TextBatch<'a> {
+    pending: std::sync::Mutex<Vec<Value>>,
+    emit: &'a (dyn Fn(Value) + Send + Sync),
+}
+impl TextBatch<'_> {
+    fn push(&self, event: Value) {
+        let mut events = self.pending.lock().unwrap();
+        if let Some(last) = events.last_mut() {
+            if last["type"] == event["type"] && event["text"].is_string() {
+                append(last, "text", &event["text"]);
+                return;
+            }
+        }
+        events.push(event);
+    }
+    fn flush(&self) {
+        let events = std::mem::take(&mut *self.pending.lock().unwrap());
+        for event in events {
+            (self.emit)(event);
+        }
+    }
+}
+impl Drop for TextBatch<'_> {
+    fn drop(&mut self) {
+        self.flush();
+    }
+}
+
 pub async fn read(
     mut response: reqwest::Response,
     kind: &str,
     emit: &(dyn Fn(Value) + Send + Sync),
 ) -> Result<Value> {
-    let mut accumulator = Accumulator::new(kind);
-    let mut buffer = vec![];
-    let mut total = 0;
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|e| e.without_url().to_string())?
-    {
-        total += chunk.len();
-        if total > 32 * 1024 * 1024 {
-            return Err("Provider stream exceeds 32 MiB".into());
-        }
-        buffer.extend_from_slice(&chunk);
-        while let Some(index) = buffer.iter().position(|b| *b == b'\n') {
-            let line: Vec<_> = buffer.drain(..=index).collect();
-            let text = std::str::from_utf8(&line).map_err(err)?.trim();
-            if let Some(data) = text.strip_prefix("data:") {
-                let data = data.trim();
-                if data != "[DONE]" && !data.is_empty() {
-                    accumulator.push(serde_json::from_str(data).map_err(err)?, emit)?;
+    // Persist/send bounded text batches instead of one SQLite transaction and IPC per token.
+    let batch = TextBatch {
+        pending: std::sync::Mutex::new(Vec::new()),
+        emit,
+    };
+    let collect = |event| batch.push(event);
+    let flush = || batch.flush();
+    let mut tick = tokio::time::interval(std::time::Duration::from_millis(50));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let result = async {
+        let mut accumulator = Accumulator::new(kind);
+        let mut buffer = vec![];
+        let mut total = 0;
+        loop {
+            let chunk = tokio::select! {
+                chunk = response.chunk() => chunk.map_err(|e| e.without_url().to_string())?,
+                _ = tick.tick() => { flush(); continue; }
+            };
+            let Some(chunk) = chunk else {
+                break;
+            };
+            total += chunk.len();
+            if total > 32 * 1024 * 1024 {
+                return Err("Provider stream exceeds 32 MiB".into());
+            }
+            buffer.extend_from_slice(&chunk);
+            while let Some(index) = buffer.iter().position(|b| *b == b'\n') {
+                let line: Vec<_> = buffer.drain(..=index).collect();
+                let text = std::str::from_utf8(&line).map_err(err)?.trim();
+                if let Some(data) = text.strip_prefix("data:") {
+                    let data = data.trim();
+                    if data != "[DONE]" && !data.is_empty() {
+                        accumulator.push(serde_json::from_str(data).map_err(err)?, &collect)?;
+                    }
                 }
             }
         }
+        accumulator.finish()
     }
-    accumulator.finish()
+    .await;
+    // Also retain the final partial text on a failed/disconnected provider stream.
+    flush();
+    result
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn text_batches_flush_on_cancellation_drop_without_mixing_kinds() {
+        let events = std::sync::Mutex::new(Vec::new());
+        let emit = |event| events.lock().unwrap().push(event);
+        {
+            let batch = TextBatch {
+                pending: std::sync::Mutex::new(Vec::new()),
+                emit: &emit,
+            };
+            for _ in 0..1000 {
+                batch.push(json!({"type":"thinking_delta","text":"x"}));
+            }
+            batch.push(json!({"type":"assistant_delta","text":"Done"}));
+            assert!(events.lock().unwrap().is_empty());
+        }
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0]["text"], "x".repeat(1000));
+        assert_eq!(events[1]["text"], "Done");
+    }
     #[test]
     fn tool_fragments_are_only_parsed_after_completion() {
         let mut a = Accumulator::new("chat_completions");
@@ -225,6 +298,36 @@ mod tests {
         assert_eq!(
             raw["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"],
             "{\"path\":\"index.html\"}"
+        );
+    }
+    #[test]
+    fn chat_reasoning_is_emitted_before_completion_and_preserved() {
+        let events = std::sync::Mutex::new(Vec::new());
+        let emit = |event| events.lock().unwrap().push(event);
+        let mut a = Accumulator::new("chat_completions");
+        a.push(
+            json!({"choices":[{"index":0,"delta":{"reasoning_content":"Inspect "}}]}),
+            &emit,
+        )
+        .unwrap();
+        a.push(
+            json!({"choices":[{"index":0,"delta":{"reasoning_content":"files"}}]}),
+            &emit,
+        )
+        .unwrap();
+        assert_eq!(
+            events.lock().unwrap()[0],
+            json!({"type":"thinking_delta","text":"Inspect "})
+        );
+        assert_eq!(events.lock().unwrap().len(), 2);
+        a.push(
+            json!({"choices":[{"index":0,"delta":{"content":"Done"},"finish_reason":"stop"}]}),
+            &emit,
+        )
+        .unwrap();
+        assert_eq!(
+            a.finish().unwrap()["choices"][0]["message"]["reasoning_content"],
+            "Inspect files"
         );
     }
     #[test]

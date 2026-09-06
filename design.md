@@ -24,7 +24,7 @@ belong to the user, not to incoming events.
   preview window under result options.
 - Overview: direction, reference images, current work and decisions.
 - History: chronological requests and replies in a separate dialog.
-- Details: execution status, agents, activity, changed files and available app logs.
+- Agents: an inline right panel with parallel conversations, execution status, changed files and available app logs.
 - Settings: Providers (with expandable model catalogue) and Preferences.
 
 ## Motion and states
@@ -42,3 +42,10 @@ At 1200 px and above, the project overview and result share the workspace. Below
 show one at a time with explicit controls. The native minimum is 800×600; also
 verify narrow component layouts. Keep the composer within reach and preserve
 reading position, drafts and editor state while opening panels.
+
+### Live thinking and parallel agents
+Provider-published reasoning streams in the main creation stage as an upward teleprompter. The center keeps full text width; the edges contract and fade. Pause holds the text for reading, and reduced motion removes smooth scrolling and distortion. No synthetic reasoning is generated when the provider sends none.
+Project details live in the right workspace panel, alongside Result. Agents can be filtered independently; reasoning, messages, actions, changed files, run history and runtime logs stay within this panel. Both result and agent views remain mounted when switching. Activity retains its run and agent identity.
+Provider configuration requests supported thinking summaries with `reasoning.summary: auto` for reasoning-enabled Responses models and `includeThoughts: true` for configured Gemini thinking models. References: [OpenAI reasoning summaries](https://developers.openai.com/api/docs/guides/reasoning) and [Gemini thinking summaries](https://ai.google.dev/gemini-api/docs/generate-content/thinking).
+The teleprompter retains every reasoning block for the active run, including blocks separated by tool calls and agent changes. Text deltas accumulate independently of transport event IDs. A single animation clock advances the reading position; new deltas extend the destination without replacing previous lines or restarting scrolling.
+Thinking uses the full stage width and left-aligned reading lines. Line wrapping measures the current font against the viewport width and recalculates on resize; transport fragments never create visual line breaks. Consecutive reasoning fragments from the same agent flow together, while actual newlines and agent changes remain visible.

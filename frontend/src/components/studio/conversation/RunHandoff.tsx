@@ -1,10 +1,11 @@
+import { useShallow } from "zustand/react/shallow";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { restoreDraft } from "@/lib/projectApi";
 import { useStudioStore } from "@/store/studio-store";
 
 export function RunHandoff({ projectId }: { projectId: string }) {
-  const { lastOutcome, iterations, bumpPreview } = useStudioStore();
+  const { lastOutcome, iterations, bumpPreview } = useStudioStore(useShallow((s) => ({ lastOutcome: s.lastOutcome, iterations: s.iterations, bumpPreview: s.bumpPreview })));
   const [recovering, setRecovering] = useState(false);
   const [recovered, setRecovered] = useState(false);
   const runId = lastOutcome?.runId ?? null;

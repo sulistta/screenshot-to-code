@@ -1,3 +1,4 @@
+import { streamBatch } from "@/lib/streamBatch";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Channel } from "@tauri-apps/api/core";
 import { native } from "@/lib/native";
@@ -15,7 +16,8 @@ export function useProjectEvents(projectId: string | null, onEvent: (event: Stud
     let disposed = false;
     const subscriptionId = crypto.randomUUID();
     const channel = new Channel<StudioRunEvent>();
-    channel.onmessage = (event) => { if (!disposed) callback.current(event); };
+    const batch = streamBatch((event) => { if (!disposed) callback.current(event); });
+    channel.onmessage = (event) => { if (!disposed) batch.push(event); };
     const cursor = useStudioStore.getState().eventCursor;
     const subscription = native<void>("subscribe_project", {
       projectId, subscriptionId, onEvent: channel,
@@ -25,6 +27,8 @@ export function useProjectEvents(projectId: string | null, onEvent: (event: Stud
       if (!disposed) useStudioStore.getState().setError(error.message);
     });
     return () => {
+      batch.flush();
+      batch.dispose();
       disposed = true; setConnected(false);
       void subscription.then(() => native("unsubscribe_project", { subscriptionId })).catch(() => undefined);
     };

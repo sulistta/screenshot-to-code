@@ -3,7 +3,7 @@ import type { StudioActivityItem } from "@/store/studio-store";
 function ActivityItem({ item }: { item: StudioActivityItem }) {
   if (item.kind === "thinking") {
     return (
-      <div className="text-xs italic text-stone-400 whitespace-pre-wrap leading-relaxed">
+      <div className="text-xs text-stone-600 dark:text-zinc-300 whitespace-pre-wrap leading-relaxed">
         {item.text}
       </div>
     );

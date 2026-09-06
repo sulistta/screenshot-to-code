@@ -214,14 +214,19 @@ pub async fn request(
     };
     if let Some(effort) = &p.effort {
         match p.kind.as_str() {
-            "responses" => body["reasoning"] = json!({"effort":effort}),
+            "responses" => {
+                body["reasoning"] = json!({"effort":effort});
+                if effort != "none" {
+                    body["reasoning"]["summary"] = json!("auto");
+                }
+            }
             "anthropic" => {
                 body["thinking"] = json!({"type":"adaptive"});
                 body["output_config"] = json!({"effort":effort});
             }
             "gemini" => {
                 body["generationConfig"]["thinkingConfig"] =
-                    json!({"thinkingLevel":effort.to_uppercase()})
+                    json!({"thinkingLevel":effort.to_uppercase(), "includeThoughts":true})
             }
             _ => {}
         }
@@ -694,7 +699,10 @@ mod tests {
         let state = state();
         let reply = request(
             &state,
-            &provider("responses", &url),
+            &Provider {
+                effort: Some("high".into()),
+                ..provider("responses", &url)
+            },
             "sys",
             &[],
             &[],
@@ -706,6 +714,11 @@ mod tests {
         assert_eq!(reply.calls[0].id, "call-9");
         assert_eq!(reply.calls[0].input["path"], "a");
         assert_eq!(seen.lock().unwrap()[0].path, "/responses");
+        let body: Value = serde_json::from_slice(&seen.lock().unwrap()[0].body).unwrap();
+        assert_eq!(
+            body["reasoning"],
+            json!({"effort":"high", "summary":"auto"})
+        );
     }
 
     #[tokio::test]
@@ -743,7 +756,10 @@ mod tests {
         let state = state();
         let reply = request(
             &state,
-            &provider("gemini", &url),
+            &Provider {
+                effort: Some("high".into()),
+                ..provider("gemini", &url)
+            },
             "sys",
             &[],
             &[],
@@ -756,6 +772,11 @@ mod tests {
             .path
             .contains("streamGenerateContent"));
 
+        let body: Value = serde_json::from_slice(&seen.lock().unwrap()[0].body).unwrap();
+        assert_eq!(
+            body["generationConfig"]["thinkingConfig"]["includeThoughts"],
+            true
+        );
         let blocked = Provider {
             kind: "gemini".into(),
             base: "".into(),

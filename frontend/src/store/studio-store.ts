@@ -330,7 +330,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           },
         };
       });
-      return;
     }
 
     set((state) => {
@@ -339,7 +338,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
       if (event.type === "thinking_delta" || event.type === "assistant_delta") {
         const kind = event.type === "thinking_delta" ? "thinking" : "assistant";
-        if (last && last.kind === kind && last.eventId === event.eventId) {
+        if (last && last.kind === kind && last.agentId === event.agentId) {
           // Streaming deltas accumulate on the last item of the same kind,
           // unless a tool item came between (then a new one starts).
           const updated = { ...last, text: last.text + (event.text ?? "") };
@@ -349,6 +348,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
             id: nextActivityId(),
             kind,
             eventId: event.eventId,
+            agentId: event.agentId,
+            agentName: event.agentId ? state.team[event.agentId]?.name : undefined,
             text: event.text ?? "",
           });
         }
@@ -360,6 +361,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           id: nextActivityId(),
           kind: "tool",
           text: "",
+          agentId: event.agentId,
+          agentName: event.agentId ? state.team[event.agentId]?.name : undefined,
           toolName: event.name ?? "tool",
           eventId: event.eventId,
           toolDetail: summarizeToolInput(event.name, event.input),
@@ -371,7 +374,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         // Tools may finish out of order. Provider call IDs are authoritative.
         for (let i = activity.length - 1; i >= 0; i -= 1) {
           const item = activity[i];
-          if (item.kind === "tool" && item.ok === undefined &&
+          if (item.kind === "tool" && item.ok === undefined && item.agentId === event.agentId &&
               (!event.eventId || item.eventId === event.eventId)) {
             activity[i] = {
               ...item,
@@ -391,6 +394,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         activity.push({
           id: nextActivityId(),
           kind: "status",
+          agentId: event.agentId,
+          agentName: event.agentId ? state.team[event.agentId]?.name : undefined,
           text: event.message ?? "",
         });
         return { activity };
