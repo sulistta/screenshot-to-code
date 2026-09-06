@@ -183,9 +183,11 @@ impl Accumulator {
 }
 fn append(value: &mut Value, key: &str, part: &Value) {
     if let Some(part) = part.as_str() {
-        let mut text = value[key].as_str().unwrap_or("").to_string();
-        text.push_str(part);
-        value[key] = json!(text);
+        if let Some(Value::String(text)) = value.get_mut(key) {
+            text.push_str(part);
+        } else {
+            value[key] = json!(part);
+        }
     }
 }
 struct TextBatch<'a> {
