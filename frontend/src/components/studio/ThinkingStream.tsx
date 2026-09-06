@@ -19,12 +19,15 @@ export default function ThinkingStream() {
   const [visible, setVisible] = useState(thinking);
   const viewport = useRef<HTMLDivElement>(null);
   const [lineWidth, setLineWidth] = useState(0);
+  const [displayed, setDisplayed] = useState(true);
   const measure = useRef<(text: string) => number>((text) => text.length * 7);
   const hasText = visible.length > 0;
   useEffect(() => {
     const node = viewport.current;
     if (!node) return;
     const update = () => {
+      setDisplayed(node.clientWidth > 0);
+      if (!node.clientWidth) return;
       const style = getComputedStyle(node);
       const context = document.createElement("canvas").getContext("2d");
       if (context) {
@@ -84,7 +87,7 @@ export default function ThinkingStream() {
     lens();
   }, [rows, paused, firstRow]);
   useEffect(() => {
-    if (paused || !hasText) return;
+    if (paused || !hasText || !displayed) return;
     const node = viewport.current;
     if (!node) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -102,12 +105,12 @@ export default function ThinkingStream() {
         position += Math.min(remaining, elapsed * Math.min(120, Math.max(32, remaining * .6)) / 1000);
         node.scrollTop = position;
         lens();
+        frame = requestAnimationFrame(advance);
       }
-      frame = requestAnimationFrame(advance);
     };
     frame = requestAnimationFrame(advance);
     return () => cancelAnimationFrame(frame);
-  }, [paused, hasText]);
+  }, [paused, hasText, displayed, rows.length]);
   if (!visible.length) return null;
   const latest = visible[visible.length - 1];
   return <section className="thinking-stream" aria-label="Live thinking">

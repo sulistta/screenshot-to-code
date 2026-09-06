@@ -235,6 +235,11 @@ try {
     assert.equal(await script('return getComputedStyle(document.querySelector(".thinking-line")).textAlign'), 'left', 'thinking aligns to reading edge');
     assert.ok(await script('return document.querySelector(".stage-work").clientWidth > 480'), 'thinking fills the stage width');
     await shot('/tmp/forge-thinking.png');
+    await clickText('button', 'Agents', '.workspace-actions');
+    await until(() => script('return document.querySelector(".agent-chat")?.textContent.includes("checking layout")'), 'parallel activity during burst');
+    await clickText('button', 'Overview');
+    assert.equal(await script('return document.querySelector(".layout-conversation") !== null'), true, 'navigation responds during streaming');
+    await clickText('button', 'Show result');
     await until(async () => (await ipc('get_transcript', { projectId })).some(m => m.role === 'assistant' && m.runId === runId), 'generation completion');
     const frames = await script('window.__measureFrames = false; return window.__frameGaps');
     const sortedFrames = frames.slice().sort((a, b) => a - b);

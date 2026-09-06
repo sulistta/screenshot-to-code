@@ -310,7 +310,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
     // Specialist-attributed tool/status events feed that agent's panel and
     // its readable current action; they are not coordinator activity.
-    if (event.agentId) {
+    if (event.agentId && (event.type === "tool_start" || event.type === "tool_result")) {
       const agentId = event.agentId;
       const detail = summarizeToolInput(event.tool ?? event.name, event.input);
       set((current) => {

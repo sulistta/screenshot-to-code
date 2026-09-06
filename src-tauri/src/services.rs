@@ -264,7 +264,7 @@ fn snapshot(service: &mut Service) -> Result<Value> {
         "services":[{"name":"app","port":service.port,"crashes":0,"logs":service.logs.lock().map_err(|_|"Logs unavailable")?.iter().collect::<Vec<_>>()}]}),
     )
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn services_status(state: State<'_, AppState>, project_id: String) -> Result<Value> {
     let mut inner = state.lock()?;
     inner.store.get(&project_id)?;
