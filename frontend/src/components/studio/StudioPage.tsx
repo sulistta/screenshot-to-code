@@ -273,11 +273,10 @@ function ForgeSidebar({
 
 function NewProjectView({ settings, onCreated }: { settings: Settings; onCreated: (id: string) => void }) {
   const [brief, setBrief] = useState(() => sessionStorage.getItem("new-project-draft") ?? "");
-  const [primary, setPrimary] = useState(settings.defaultPrimaryModel ?? "");
-  const [subagent, setSubagent] = useState(settings.defaultSubagentModel ?? "");
+  const [models, setModels] = useState({ primaryModel: settings.defaultPrimaryModel ?? "", subagentModel: settings.defaultSubagentModel ?? "", primaryEffort: "", subagentEffort: "" });
   const modelsTouched = useRef(false);
   useEffect(() => {
-    if (!modelsTouched.current) { setPrimary(settings.defaultPrimaryModel ?? ""); setSubagent(settings.defaultSubagentModel ?? ""); }
+    if (!modelsTouched.current) { setModels((current) => ({ ...current, primaryModel: settings.defaultPrimaryModel ?? "", subagentModel: settings.defaultSubagentModel ?? "" })); }
   }, [settings.defaultPrimaryModel, settings.defaultSubagentModel]);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -291,14 +290,15 @@ function NewProjectView({ settings, onCreated }: { settings: Settings; onCreated
     creatingRef.current = true;
     setCreating(true);
     setCreateError(null);
+    const configured = models.primaryModel || models.subagentModel || models.primaryEffort || models.subagentEffort;
     try {
       const name = text ? text.split("\n")[0].slice(0, 48) || "Untitled project" : "Untitled project";
       const project = await createProject(name, text || "Untitled project");
       useStudioStore.getState().setProjects([project, ...useStudioStore.getState().projects]);
-      if (primary || subagent) {
+      if (configured) {
         try {
-          const configured = await updateProjectApi(project.id, { primaryModel: primary, subagentModel: subagent });
-          useStudioStore.getState().updateProject(configured);
+          const updated = await updateProjectApi(project.id, models);
+          useStudioStore.getState().updateProject(updated);
         } catch (error) {
           // Never continue silently with an unconfigured model: keep the
           // project, hand the brief back, and let the user retry inside it.
@@ -313,7 +313,7 @@ function NewProjectView({ settings, onCreated }: { settings: Settings; onCreated
       }
       if (text || images.length > 0) {
         try {
-          await startRun(project.id, text || "Build this project.", runSettings(settings, primary, subagent), images);
+          await startRun(project.id, text || "Build this project.", runSettings(settings, models), images);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           savePendingPrompt(project.id, { text, images, savedAt: Date.now(), error: `Could not start: ${message}. Your brief was kept — retry inside this project.` });
@@ -340,8 +340,8 @@ function NewProjectView({ settings, onCreated }: { settings: Settings; onCreated
     <h1 className="forge-h1">What do you want to create?</h1>
     <p className="forge-sub">Start with an idea or a reference. We’ll build from there.</p>
     <Composer isNew value={brief} onChange={(value) => { setBrief(value); setCreateError(null); }} onSubmit={() => void create()}
-      settings={settings} primary={primary} subagent={subagent}
-      onModelsChange={(patch) => { modelsTouched.current = true; if (patch.primaryModel !== undefined) setPrimary(patch.primaryModel); if (patch.subagentModel !== undefined) setSubagent(patch.subagentModel); }}
+      settings={settings} {...models}
+      onConfigChange={(patch) => { modelsTouched.current = true; setModels((current) => ({ ...current, ...patch })); }}
       images={images} onFiles={addFiles} onRemove={removeAt} error={createError || attachError} busy={creating} />
   </div>;
 }

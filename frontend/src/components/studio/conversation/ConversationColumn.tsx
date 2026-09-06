@@ -63,7 +63,10 @@ export function ConversationColumn({ projectId, settings, send, connected, onDet
     submitInFlight.current = true;
     setSubmitting(true);
     try {
-      const runId = await startRun(projectId, text, runSettings(settings, project?.primaryModel, project?.subagentModel), images);
+      const runId = await startRun(projectId, text, runSettings(settings, {
+        primaryModel: project?.primaryModel, subagentModel: project?.subagentModel,
+        primaryEffort: project?.primaryEffort, subagentEffort: project?.subagentEffort,
+      }), images);
       if (useStudioStore.getState().activeProjectId !== projectId) return;
       handleEvent({ type: "user_message", projectId, runId, text, images });
       setDraft("");
@@ -73,7 +76,7 @@ export function ConversationColumn({ projectId, settings, send, connected, onDet
       if (useStudioStore.getState().activeProjectId === projectId) setError(error instanceof Error ? error.message : String(error));
     } finally { submitInFlight.current = false; setSubmitting(false); }
   };
-  const saveModels = async (patch: { primaryModel?: string; subagentModel?: string }) => {
+  const saveModels = async (patch: { primaryModel?: string; subagentModel?: string; primaryEffort?: string; subagentEffort?: string }) => {
     if (working || modelInFlight.current) return;
     modelInFlight.current = true;
     setModelsBusy(true);
@@ -113,7 +116,9 @@ export function ConversationColumn({ projectId, settings, send, connected, onDet
     <div className="conversation-bottom">
       <div className="run-indicator"><span className="session-dock-label">{working ? "You can prepare the next change below" : "Guide the next step"}</span><button className="session-history" onClick={() => setHistoryOpen(true)}>History</button></div>
       <Composer value={draft} onChange={setDraft} onSubmit={() => void submit()} settings={settings}
-        primary={project?.primaryModel ?? ""} subagent={project?.subagentModel ?? ""} onModelsChange={(patch) => void saveModels(patch)}
+        primaryModel={project?.primaryModel ?? ""} subagentModel={project?.subagentModel ?? ""}
+        primaryEffort={project?.primaryEffort ?? ""} subagentEffort={project?.subagentEffort ?? ""}
+        onConfigChange={(patch) => void saveModels(patch)}
         images={images} onFiles={addFiles} onRemove={removeAt} error={attachError} busy={submitting} working={working}
         modelsBusy={modelsBusy} onStop={() => void stop()} stopping={stopping} />
     </div>

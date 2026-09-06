@@ -49,6 +49,8 @@ const project = (overrides: Partial<StudioProject> = {}): StudioProject => ({
   updatedAt: "2026-02-01",
   primaryModel: "",
   subagentModel: "",
+  primaryEffort: "",
+  subagentEffort: "",
   ...overrides,
 });
 

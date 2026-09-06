@@ -29,7 +29,48 @@ fn string(v: &Value, key: &str) -> String {
     v[key].as_str().unwrap_or("").trim().to_string()
 }
 
-pub fn select(settings: &Value, requested: &str) -> Result<Provider> {
+/// Reasoning effort levels accepted across protocols, weakest to strongest.
+/// The effort is a per-role request parameter, independent of the model.
+pub const EFFORT_LEVELS: [&str; 7] = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+pub fn validate_effort(effort: &str) -> Result<()> {
+    if effort.is_empty() || EFFORT_LEVELS.contains(&effort) {
+        return Ok(());
+    }
+    Err("Invalid reasoning effort level".into())
+}
+
+pub fn catalog() -> Vec<Value> {
+    serde_json::from_str(include_str!("models.json")).expect("bundled model catalogue")
+}
+
+/// Clamp a requested effort to the closest level the model supports, so a
+/// level chosen before a model was resolved never fails the request.
+fn resolve_effort(entry: &Value, effort: &str) -> Option<String> {
+    let supported: Vec<&str> = entry["efforts"]
+        .as_array()?
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect();
+    if effort.is_empty() || supported.is_empty() {
+        return None;
+    }
+    if supported.contains(&effort) {
+        return Some(effort.into());
+    }
+    let rank = |level: &str| EFFORT_LEVELS.iter().position(|&l| l == level);
+    let target = rank(effort)?;
+    supported
+        .into_iter()
+        .min_by_key(|&level| {
+            let r = rank(level).unwrap_or(0);
+            (r.abs_diff(target), r)
+        })
+        .map(String::from)
+}
+
+pub fn select(settings: &Value, requested: &str, effort: &str) -> Result<Provider> {
+    validate_effort(effort)?;
     if let Some(providers) = settings["customProviders"].as_array() {
         if let Some(p) = providers
             .iter()
@@ -62,21 +103,21 @@ pub fn select(settings: &Value, requested: &str) -> Result<Provider> {
     }
     let model = if requested.is_empty() {
         if !string(settings, "geminiApiKey").is_empty() {
-            "gemini-3.1-pro-preview (high thinking)"
+            "gemini-3.1-pro-preview"
         } else if !string(settings, "anthropicApiKey").is_empty() {
             "claude-sonnet-4-6"
         } else {
-            "gpt-5.5 (high thinking)"
+            "gpt-5.5"
         }
     } else {
         requested
     };
-    let catalog: Vec<Value> = serde_json::from_str(include_str!("models.json")).map_err(err)?;
+    let catalog = catalog();
     let entry = catalog
         .iter()
-        .find(|m| m["value"] == model)
+        .find(|m| m["model"] == model)
         .ok_or("Select a model from the available catalogue")?;
-    let effort = entry["effort"].as_str().map(String::from);
+    let effort = resolve_effort(entry, effort);
     let model = entry["model"].as_str().ok_or("Invalid catalogue model")?;
     let (kind, base, key) = if model.starts_with("claude-") {
         (
@@ -432,7 +473,7 @@ pub fn append(p: &Provider, messages: &mut Vec<Value>, reply: &Reply, results: &
 }
 #[tauri::command]
 pub fn list_models() -> Vec<Value> {
-    serde_json::from_str(include_str!("models.json")).expect("bundled model catalogue")
+    catalog()
 }
 #[tauri::command]
 pub async fn test_provider(state: tauri::State<'_, AppState>, request: Value) -> Result<Value> {
@@ -919,30 +960,65 @@ mod tests {
                 "openAiApiKey": null, "anthropicApiKey": null, "geminiApiKey": null,
             })
         };
-        let p = select(&custom(true), "").unwrap();
+        let p = select(&custom(true), "", "").unwrap();
         assert_eq!(
             (p.kind.as_str(), p.model.as_str()),
             ("chat_completions", "qwen")
         );
-        let p = select(&custom(true), "custom:qwen").unwrap();
+        let p = select(&custom(true), "custom:qwen", "").unwrap();
         assert_eq!(p.model, "qwen");
-        assert!(select(&custom(false), "custom:qwen").is_err());
-        assert!(select(&json!({"customProviders": []}), "custom:qwen").is_err());
-        assert!(select(&json!({"customProviders": []}), "").is_err());
+        assert!(select(&custom(false), "custom:qwen", "").is_err());
+        assert!(select(&json!({"customProviders": []}), "custom:qwen", "").is_err());
+        assert!(select(&json!({"customProviders": []}), "", "").is_err());
 
         let anthropic = select(
             &json!({"customProviders": [], "anthropicApiKey": "k", "openAiApiKey": null, "geminiApiKey": null}),
-            "",
+            "", "",
         )
         .unwrap();
         assert_eq!(anthropic.kind, "anthropic");
         let openai = select(
             &json!({"customProviders": [], "openAiApiKey": "k", "anthropicApiKey": null, "geminiApiKey": null}),
-            "gpt-5.5 (high thinking)",
+            "gpt-5.5", "",
         )
         .unwrap();
         assert_eq!(openai.kind, "responses");
-        assert!(select(&json!({"customProviders": []}), "no-such-model").is_err());
+        assert!(select(&json!({"customProviders": []}), "no-such-model", "").is_err());
+    }
+
+    #[test]
+    fn effort_is_resolved_and_clamped_per_model() {
+        let settings = json!({
+            "customProviders": [],
+            "openAiApiKey": "k", "anthropicApiKey": "k", "geminiApiKey": "k",
+        });
+        let effort =
+            |model: &str, requested: &str| select(&settings, model, requested).unwrap().effort;
+        // An empty request keeps the provider default; unsupported models drop it.
+        assert_eq!(effort("gpt-5.5", ""), None);
+        assert_eq!(effort("claude-sonnet-4-6", "high"), None);
+        // Supported levels pass through.
+        assert_eq!(effort("gpt-5.5", "high").as_deref(), Some("high"));
+        assert_eq!(effort("gpt-5.5", "none").as_deref(), Some("none"));
+        // Levels are clamped to the closest supported one.
+        assert_eq!(effort("gpt-5.4-mini", "max").as_deref(), Some("low"));
+        assert_eq!(
+            effort("gemini-3.1-pro-preview", "max").as_deref(),
+            Some("high")
+        );
+        assert_eq!(effort("claude-opus-5", "none").as_deref(), Some("low"));
+        // Unknown levels are rejected before reaching the provider.
+        assert!(select(&settings, "gpt-5.5", "maximum").is_err());
+        // Custom providers never receive an effort parameter.
+        let custom = json!({
+            "customProviders": [{
+                "id": "local", "enabled": true, "baseUrl": "http://127.0.0.1:11434/v1",
+                "apiKey": null, "protocol": "chat_completions", "headers": {},
+                "models": [{"id": "qwen", "name": "Qwen"}],
+            }],
+            "activeCustomProviderId": "local",
+        });
+        assert_eq!(select(&custom, "custom:qwen", "max").unwrap().effort, None);
     }
 
     #[test]

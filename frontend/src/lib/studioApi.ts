@@ -5,7 +5,7 @@ import type { StudioProject, StudioTranscriptMessage, StudioIteration } from "@/
 export const listProjects = () => native<StudioProject[]>("list_projects");
 export const createProject = (name: string, brief: string) => native<StudioProject>("create_project", { name, brief });
 export const deleteProject = (projectId: string) => native<void>("delete_project", { projectId });
-export const updateProject = (projectId: string, patch: Partial<Pick<StudioProject, "name" | "brief" | "primaryModel" | "subagentModel">>) =>
+export const updateProject = (projectId: string, patch: Partial<Pick<StudioProject, "name" | "brief" | "primaryModel" | "subagentModel" | "primaryEffort" | "subagentEffort">>) =>
   native<StudioProject>("update_project", { projectId, patch });
 export const listIterations = (projectId: string) => native<StudioIteration[]>("list_iterations", { projectId });
 export const getTranscript = (projectId: string) => native<StudioTranscriptMessage[]>("get_transcript", { projectId });

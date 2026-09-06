@@ -1,8 +1,8 @@
-import { native } from "@/lib/native";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { IoChevronDown, IoCheckmarkSharp } from "react-icons/io5";
 import type { Settings } from "@/types";
+import { useModelCatalog } from "@/hooks/useModelCatalog";
 import type { ModelOption } from "./modelOptions";
 
 // Pure helpers live in modelOptions.ts (react-refresh: one component per file).
@@ -26,31 +26,14 @@ export default function ModelPicker({
   disabled = false,
 }: ModelPickerProps) {
   const [open, setOpen] = useState(false);
-  const [entries, setEntries] = useState<ModelOption[]>([]);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const catalog = useModelCatalog(settings);
 
-  // Reload whenever the provider configuration changes so new, edited, or
-  // removed providers are reflected immediately in every selector.
-  const providerFingerprint = JSON.stringify({
-    custom: settings?.customProviders ?? [],
-    active: settings?.activeCustomProviderId ?? null,
-  });
-  useEffect(() => {
-    let cancelled = false;
-    native<ModelOption[]>("list_models")
-      .then((models) => { if (!cancelled) { setEntries(models); setLoadError(null); } })
-      .catch((error: unknown) => {
-        if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error));
-      });
-    return () => { cancelled = true; };
-  }, [providerFingerprint]);
-
-  const options = buildModelOptions(entries, settings);
+  const options = buildModelOptions(catalog.data ?? [], settings);
 
   // Group order: Default, then providers in first-seen order.
   const groups: Map<string, ModelOption[]> = new Map();
-  groups.set("Default", [{ value: "", group: "Default" }]);
+  groups.set("Default", [{ value: "", group: "Default", efforts: [] }]);
   for (const option of options) {
     if (!groups.has(option.group)) groups.set(option.group, []);
     groups.get(option.group)!.push(option);
@@ -84,9 +67,9 @@ export default function ModelPicker({
         <div className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
           {label} model
         </div>
-        {loadError && (
+        {catalog.isError && (
           <p role="alert" className="px-2 py-1.5 text-[11px] text-red-600">
-            Could not load models: {loadError}
+            Could not load models: {catalog.error instanceof Error ? catalog.error.message : String(catalog.error)}
           </p>
         )}
         {[...groups.entries()].map(([group, groupOptions]) => (

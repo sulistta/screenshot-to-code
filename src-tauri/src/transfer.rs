@@ -280,6 +280,7 @@ pub fn import_folder(root: &std::path::Path) -> Result<store::Document> {
         }
         doc.project.primary_model = metadata["primary_model"].as_str().unwrap_or("").into();
         doc.project.subagent_model = metadata["subagent_model"].as_str().unwrap_or("").into();
+        store::migrate_legacy_models(&mut doc.project);
         let versions = root.join("iterations");
         if versions.is_dir() {
             let mut directories = std::fs::read_dir(versions)

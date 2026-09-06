@@ -15,7 +15,6 @@ describe("studio store event handling", () => {
       error: null,
       iterations: [],
       lastOutcome: null,
-      currentRunConfig: null,
       settings: null,
       currentRunId: null,
       eventCursor: null,
@@ -33,14 +32,7 @@ describe("studio store event handling", () => {
 
   it("records the completed outcome with iteration and files", () => {
     const { handleEvent } = useStudioStore.getState();
-    handleEvent({
-      type: "run_status",
-      status: "running",
-      config: {
-        primary_model: "gpt-5.5 (no thinking)",
-        subagent_model: "",
-      },
-    });
+    handleEvent({ type: "run_status", status: "running" });
     handleEvent({ type: "assistant_delta", text: "Built it." });
     handleEvent({
       type: "run_status",

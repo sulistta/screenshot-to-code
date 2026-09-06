@@ -253,6 +253,7 @@ async fn execute(
             let provider = providers::select(
                 &run.settings,
                 run.settings["subagentModel"].as_str().unwrap_or(""),
+                run.settings["subagentEffort"].as_str().unwrap_or(""),
             )?;
             let context = format!(
                 "Objective: {objective}\nOwned paths: {}\nProject files: {}",
@@ -479,7 +480,11 @@ pub async fn start_run(
     if text.len() > 64000 || images.len() > 5 || (text.trim().is_empty() && images.is_empty()) {
         return Err("Provide a prompt and at most five reference images".into());
     }
-    let provider = providers::select(&settings, settings["primaryModel"].as_str().unwrap_or(""))?;
+    let provider = providers::select(
+        &settings,
+        settings["primaryModel"].as_str().unwrap_or(""),
+        settings["primaryEffort"].as_str().unwrap_or(""),
+    )?;
     providers::initial(&provider, "", &text, &images)?;
     let id = store::id();
     let cancel = CancellationToken::new();
@@ -525,7 +530,10 @@ pub async fn start_run(
         json!({"type":"user_message","text":text,"images":run.images}),
         "coordinator",
     )?;
-    run.emit(json!({"type":"run_status","status":"running","config":{"primary_model":provider.model,"subagent_model":run.settings["subagentModel"]}}),"coordinator")?;
+    run.emit(
+        json!({"type":"run_status","status":"running"}),
+        "coordinator",
+    )?;
     run.emit(json!({"type":"agent_status","agentId":"coordinator","name":"Coordinator","role":"coordinator","status":"working","objective":text}),"coordinator")?;
     tauri::async_runtime::spawn(async move {
         let outcome = agent_loop(&run, &provider, &context, "coordinator", &[]).await;

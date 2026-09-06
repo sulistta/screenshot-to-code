@@ -18,8 +18,10 @@ belong to the user, not to incoming events.
 ## Information hierarchy
 
 - Sidebar: New Project, project library, Settings.
-- Composer: primary model, automatic/selected subagent model, optional ideas,
-  request, references, attach and send/stop.
+- Composer: primary model and effort, automatic/selected subagent model and
+  effort, optional ideas, request, references, attach and send/stop. Reasoning
+  effort is chosen per role next to its model, never in Settings; the picker
+  offers the levels the selected model supports.
 - Result: Preview and Code; version history, reference comparison, ZIP/Git and
   preview window under result options.
 - Overview: direction, reference images, current work and decisions.

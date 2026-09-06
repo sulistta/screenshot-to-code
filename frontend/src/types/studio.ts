@@ -11,6 +11,8 @@ export interface StudioProject {
   updatedAt: string;
   primaryModel: string;
   subagentModel: string;
+  primaryEffort: string;
+  subagentEffort: string;
 }
 
 export interface StudioIteration {
@@ -19,20 +21,6 @@ export interface StudioIteration {
   label: string;
   summary: string;
   created_at: string;
-}
-
-export interface StudioRunRecord {
-  run_id: string;
-  status: string;
-  started_at: string;
-  finished_at: string | null;
-  config: {
-    primary_model: string;
-    subagent_model: string;
-  };
-  files_changed: string[];
-  iteration_id: string | null;
-  error: string | null;
 }
 
 export interface StudioTranscriptMessage {
@@ -109,10 +97,6 @@ export interface StudioRunEvent {
   summary?: string;
   iterationId?: string | null;
   filesChanged?: string[];
-  config?: {
-    primary_model: string;
-    subagent_model: string;
-  };
   draftAvailable?: boolean;
 }
 

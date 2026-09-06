@@ -16,7 +16,7 @@ describe("RunHandoff", () => {
 
   it("resets the recovery result when a new run outcome arrives", async () => {
     useStudioStore.setState({
-      lastOutcome: { runId: "r1", status: "cancelled", iterationId: null, filesChanged: [], draftAvailable: true, config: null },
+      lastOutcome: { runId: "r1", status: "cancelled", iterationId: null, filesChanged: [], draftAvailable: true },
     });
     const { rerender } = render(<RunHandoff projectId="p1" />);
     fireEvent.click(screen.getByRole("button", { name: /restore partial work/i }));
@@ -26,7 +26,7 @@ describe("RunHandoff", () => {
 
     act(() => {
       useStudioStore.setState({
-        lastOutcome: { runId: "r2", status: "cancelled", iterationId: null, filesChanged: [], draftAvailable: true, config: null },
+        lastOutcome: { runId: "r2", status: "cancelled", iterationId: null, filesChanged: [], draftAvailable: true },
       });
     });
     rerender(<RunHandoff projectId="p1" />);

@@ -9,7 +9,7 @@ jest.mock("@/lib/studioApi", () => ({
   listProjects: jest.fn(async () => []),
   createProject: jest.fn(async (name: string, brief: string) => ({
     id: "new-1", name, brief, createdAt: "", updatedAt: "",
-    primaryModel: "", subagentModel: "",
+    primaryModel: "", subagentModel: "", primaryEffort: "", subagentEffort: "",
   })),
   getTranscript: jest.fn(async () => []),
   startRun: jest.fn(async () => "run-1"),
@@ -19,6 +19,11 @@ jest.mock("@/lib/studioApi", () => ({
 jest.mock("./ModelPicker", () => ({
   __esModule: true,
   default: ({ label, onChange, value }: { label: string; onChange: (value: string) => void; value: string }) => <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}><option value="">Automatic</option><option value="test:model">Test</option></select>,
+}));
+
+jest.mock("./EffortPicker", () => ({
+  __esModule: true,
+  default: ({ label, onChange, value }: { label: string; onChange: (value: string) => void; value: string }) => <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}><option value="">Default</option><option value="high">High</option><option value="none">None</option></select>,
 }));
 
 jest.mock("@/lib/projectApi", () => ({ getFiles: jest.fn(async () => ({ files: {}, revision: "v1" })) }));
@@ -121,9 +126,22 @@ describe("NewProjectView", () => {
     fireEvent.change(screen.getByLabelText("Project brief"), { target: { value: "Configured project" } });
     fireEvent.click(screen.getByRole("button", { name: "Create project" }));
     await waitFor(() => expect(startRun).toHaveBeenCalledTimes(1));
-    expect(updateProject).toHaveBeenCalledWith("new-1", { primaryModel: "test:model", subagentModel: "test:model" });
+    expect(updateProject).toHaveBeenCalledWith("new-1", { primaryModel: "test:model", subagentModel: "test:model", primaryEffort: "", subagentEffort: "" });
     expect(useStudioStore.getState().projects[0].primaryModel).toBe("test:model");
     expect((startRun as jest.Mock).mock.calls[0][2]).not.toHaveProperty("generatedCodeConfig");
+  });
+
+  it("saves the reasoning effort next to each model before starting", async () => {
+    renderHome();
+    await act(async () => undefined);
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "test:model" } });
+    fireEvent.change(screen.getByLabelText("Effort"), { target: { value: "high" } });
+    fireEvent.change(screen.getByLabelText("Subagent effort"), { target: { value: "none" } });
+    fireEvent.change(screen.getByLabelText("Project brief"), { target: { value: "Effortful" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create project" }));
+    await waitFor(() => expect(startRun).toHaveBeenCalledTimes(1));
+    expect(updateProject).toHaveBeenCalledWith("new-1", { primaryModel: "test:model", subagentModel: "", primaryEffort: "high", subagentEffort: "none" });
+    expect((startRun as jest.Mock).mock.calls[0][2]).toMatchObject({ primaryModel: "test:model", primaryEffort: "high", subagentEffort: "none" });
   });
 
   it("keeps a created project and draft when model persistence fails without starting", async () => {

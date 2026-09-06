@@ -111,6 +111,10 @@ pub struct Project {
     pub updated_at: String,
     pub primary_model: String,
     pub subagent_model: String,
+    #[serde(default)]
+    pub primary_effort: String,
+    #[serde(default)]
+    pub subagent_effort: String,
     pub favorite: bool,
     pub archived: bool,
     pub trashed: bool,
@@ -151,6 +155,8 @@ impl Document {
                 updated_at: timestamp,
                 primary_model: String::new(),
                 subagent_model: String::new(),
+                primary_effort: String::new(),
+                subagent_effort: String::new(),
                 favorite: false,
                 archived: false,
                 trashed: false,
@@ -189,6 +195,39 @@ impl Document {
     }
 }
 
+/// Older builds encoded the reasoning effort into the model value
+/// ("gpt-5.5 (high thinking)"). Split it back into model + effort so the
+/// decoupled effort selector keeps working for existing projects.
+pub fn migrate_legacy_models(project: &mut Project) {
+    split_legacy_model(&mut project.primary_model, &mut project.primary_effort);
+    split_legacy_model(&mut project.subagent_model, &mut project.subagent_effort);
+}
+
+fn split_legacy_model(model: &mut String, effort: &mut String) {
+    if !effort.is_empty() || !model.ends_with(')') || model.starts_with("custom:") {
+        return;
+    }
+    let Some((base, suffix)) = model.rsplit_once(" (") else {
+        return;
+    };
+    let Some(suffix) = suffix.strip_suffix(')') else {
+        return;
+    };
+    let level = suffix
+        .strip_suffix(" thinking")
+        .or_else(|| suffix.strip_suffix(" effort"))
+        .unwrap_or(suffix);
+    let level = match level {
+        "no" => "none",
+        other => other,
+    };
+    if !crate::providers::EFFORT_LEVELS.contains(&level) {
+        return;
+    }
+    *effort = level.into();
+    *model = base.into();
+}
+
 pub struct Store {
     pub connection: Connection,
 }
@@ -208,7 +247,9 @@ impl Store {
             .connection
             .query_row("SELECT data FROM documents WHERE id=?", [id], |r| r.get(0))
             .map_err(|_| "Project not found".to_string())?;
-        serde_json::from_str(&raw).map_err(err)
+        let mut doc: Document = serde_json::from_str(&raw).map_err(err)?;
+        migrate_legacy_models(&mut doc.project);
+        Ok(doc)
     }
     pub fn put(&self, document: &Document) -> Result<()> {
         self.connection.execute("INSERT INTO documents VALUES (?1,?2) ON CONFLICT(id) DO UPDATE SET data=excluded.data",
@@ -223,11 +264,9 @@ impl Store {
         let rows = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(err)?;
         let mut projects = Vec::new();
         for row in rows {
-            projects.push(
-                serde_json::from_str::<Document>(&row.map_err(err)?)
-                    .map_err(err)?
-                    .project,
-            );
+            let mut doc: Document = serde_json::from_str(&row.map_err(err)?).map_err(err)?;
+            migrate_legacy_models(&mut doc.project);
+            projects.push(doc.project);
         }
         projects.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         Ok(projects)
@@ -304,6 +343,75 @@ mod tests {
         }
         assert!(validate_path("src/components/App.tsx").is_ok());
     }
+    #[test]
+    fn legacy_suffixes_map_to_effort_levels() {
+        let split = |value: &str| {
+            let mut model = value.into();
+            let mut effort = String::new();
+            split_legacy_model(&mut model, &mut effort);
+            (model, effort)
+        };
+        assert_eq!(
+            split("gpt-5.5 (high thinking)"),
+            ("gpt-5.5".into(), "high".into())
+        );
+        assert_eq!(
+            split("gpt-5.5 (no thinking)"),
+            ("gpt-5.5".into(), "none".into())
+        );
+        assert_eq!(
+            split("claude-opus-5 (xhigh effort)"),
+            ("claude-opus-5".into(), "xhigh".into())
+        );
+        assert_eq!(
+            split("gemini-3.5-flash (minimal thinking)"),
+            ("gemini-3.5-flash".into(), "minimal".into())
+        );
+        // Unknown levels and custom providers stay untouched.
+        assert_eq!(split("gpt-5.5"), ("gpt-5.5".into(), "".into()));
+        assert_eq!(
+            split("model (nonsense)"),
+            ("model (nonsense)".into(), "".into())
+        );
+        assert_eq!(
+            split("custom:qwen (high thinking)"),
+            ("custom:qwen (high thinking)".into(), "".into())
+        );
+    }
+
+    #[test]
+    fn stored_legacy_projects_migrate_and_default_missing_efforts() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("studio.db");
+        let store = Store::open(&path).unwrap();
+        let mut doc = Document::new("Legacy".into(), "".into());
+        let id = doc.project.id.clone();
+        doc.project.primary_model = "gpt-5.5 (high thinking)".into();
+        doc.project.subagent_model = "claude-opus-5 (max effort)".into();
+        // Documents written before efforts existed carry no effort fields.
+        let mut raw = serde_json::to_value(&doc).unwrap();
+        raw["project"]
+            .as_object_mut()
+            .unwrap()
+            .remove("primaryEffort");
+        raw["project"]
+            .as_object_mut()
+            .unwrap()
+            .remove("subagentEffort");
+        store
+            .connection
+            .execute(
+                "INSERT INTO documents VALUES (?1,?2)",
+                params![id, raw.to_string()],
+            )
+            .unwrap();
+        let project = store.get(&id).unwrap().project;
+        assert_eq!(project.primary_model, "gpt-5.5");
+        assert_eq!(project.primary_effort, "high");
+        assert_eq!(project.subagent_model, "claude-opus-5");
+        assert_eq!(project.subagent_effort, "max");
+    }
+
     #[test]
     fn persistence_revision_and_replay_survive_restart() {
         let dir = tempfile::tempdir().unwrap();

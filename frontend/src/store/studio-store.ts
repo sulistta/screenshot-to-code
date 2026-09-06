@@ -18,10 +18,6 @@ export interface RunOutcome {
   filesChanged: string[];
   /** A recoverable draft was saved for this run's partial work. */
   draftAvailable: boolean;
-  config: {
-    primary_model: string;
-    subagent_model: string;
-  } | null;
 }
 
 export interface StudioActivityItem {
@@ -62,7 +58,6 @@ interface StudioState {
   error: string | null;
   iterations: StudioIteration[];
   lastOutcome: RunOutcome | null;
-  currentRunConfig: RunOutcome["config"];
   settings: Settings | null;
   currentRunId: string | null;
   eventCursor: { streamId: string; sequence: number } | null;
@@ -125,7 +120,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   error: null,
   iterations: [],
   lastOutcome: null,
-  currentRunConfig: null,
   settings: null,
   currentRunId: null,
   eventCursor: null,
@@ -151,7 +145,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       error: null,
       iterations: [],
       lastOutcome: null,
-      currentRunConfig: null,
       currentRunId: null,
       eventCursor: null,
     }),
@@ -227,7 +220,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         const newRun = !!event.runId && event.runId !== state.currentRunId;
         set({
           currentRunId: event.runId ?? state.currentRunId,
-          currentRunConfig: event.config ?? state.currentRunConfig,
           lastOutcome: null,
           ...(newRun ? { activity: [], team: {}, error: null } : {}),
         });
@@ -262,7 +254,6 @@ export const useStudioStore = create<StudioState>((set, get) => ({
               iterationId: event.iterationId ?? null,
               filesChanged: event.filesChanged ?? [],
               draftAvailable: event.draftAvailable ?? false,
-              config: state.currentRunConfig,
             },
             transcript:
               replyText && state.activeProjectId && !alreadyAppended

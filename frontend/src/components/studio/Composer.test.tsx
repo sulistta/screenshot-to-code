@@ -2,9 +2,11 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import Composer from "./Composer";
 import { DEFAULT_SETTINGS } from "@/lib/defaultSettings";
 
+jest.mock("@/hooks/useModelCatalog", () => ({ useModelCatalog: () => ({ data: [] }) }));
 jest.mock("./ModelPicker", () => ({ __esModule: true, default: () => null }));
 const props = () => ({ value: "An idea", onChange: jest.fn(), onSubmit: jest.fn(), settings: DEFAULT_SETTINGS,
-  primary: "", subagent: "", onModelsChange: jest.fn(), images: [], onFiles: jest.fn(), onRemove: jest.fn() });
+  primaryModel: "", subagentModel: "", primaryEffort: "", subagentEffort: "", onConfigChange: jest.fn(),
+  images: [], onFiles: jest.fn(), onRemove: jest.fn() });
 
 it("sends on Enter, but not Shift+Enter or IME composition", () => {
   const input = props(); render(<Composer {...input} />);

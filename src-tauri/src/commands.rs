@@ -42,6 +42,14 @@ pub fn update_project(
     if let Some(model) = patch["subagentModel"].as_str() {
         doc.project.subagent_model = model.into();
     }
+    if let Some(effort) = patch["primaryEffort"].as_str() {
+        crate::providers::validate_effort(effort)?;
+        doc.project.primary_effort = effort.into();
+    }
+    if let Some(effort) = patch["subagentEffort"].as_str() {
+        crate::providers::validate_effort(effort)?;
+        doc.project.subagent_effort = effort.into();
+    }
     doc.project.updated_at = store::now();
     inner.store.put(&doc)?;
     Ok(doc.project)
