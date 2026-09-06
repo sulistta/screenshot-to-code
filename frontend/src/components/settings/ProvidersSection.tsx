@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { LuPencil, LuPlus, LuTrash2 } from "react-icons/lu";
+import { LuPencil, LuPlus, LuTrash2, LuLink } from "react-icons/lu";
 import { CustomProvider, Settings } from "../../types";
 import { readProviderTest } from "../../lib/providers";
 import { writePreference } from "@/lib/preferences";
@@ -37,6 +37,7 @@ const BUILTIN_ROWS: BuiltinProviderRow[] = [
 ];
 
 function ProvidersSection({ settings, setSettings }: Props) {
+  const [builtinOpen, setBuiltinOpen] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProvider, setEditingProvider] = useState<CustomProvider | null>(
     null
@@ -101,152 +102,19 @@ function ProvidersSection({ settings, setSettings }: Props) {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Built-in providers */}
-      <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
-        <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
-          <h2 className="text-sm font-medium text-gray-900 dark:text-white">
-            Built-in providers
-          </h2>
-        </div>
-        <div className="divide-y divide-gray-100 dark:divide-zinc-700">
-          {BUILTIN_ROWS.map((row) => (
-            <div key={row.key} className="px-4 py-3">
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-gray-700 dark:text-zinc-300">
-                  {row.label}
-                </p>
-                {settings[row.key] && (
-                  <button
-                    className="text-xs text-gray-400 hover:text-red-500 dark:text-zinc-500 dark:hover:text-red-400"
-                    onClick={() => handleBuiltinChange(row.key, "")}
-                  >
-                    Disconnect
-                  </button>
-                )}
-              </div>
-              <Input
-                id={row.key}
-                type="password"
-                autoComplete="off"
-                className="mt-2"
-                placeholder={row.placeholder}
-                value={settings[row.key] || ""}
-                onChange={(e) => handleBuiltinChange(row.key, e.target.value)}
-              />
-            </div>
-          ))}
-        </div>
-        <p className="px-4 py-3 text-xs text-gray-500 dark:text-zinc-400">
-          Keys are saved in your operating system’s credential store. A saved key is not verified —
-          run a generation or test a custom provider below to verify connectivity.
-        </p>
+    <div className="settings-providers">
+      <header className="settings-card-heading"><div><h2>Providers</h2><p>Connect and manage model providers for your workspace.</p></div><Button size="sm" onClick={() => { setEditingProvider(null); setDialogOpen(true); }}>Add provider <LuPlus className="ml-2" /></Button></header>
+      <div className="settings-provider-list">
+        {BUILTIN_ROWS.map((row) => <div key={row.key}>
+          <div className="settings-provider-row"><span className="provider-symbol" aria-hidden>{row.label === "OpenAI" ? "◎" : row.label === "Anthropic" ? "AI" : "✦"}</span><div className="provider-identity"><strong>{row.label}</strong><small>{row.label === "OpenAI" ? "api.openai.com" : row.label === "Anthropic" ? "api.anthropic.com" : "generativelanguage.googleapis.com"}</small></div><span className="provider-state"><i />{settings[row.key] ? "Key saved" : "Not configured"}</span><button className="provider-more" aria-label={`Configure ${row.label}`} aria-expanded={builtinOpen === row.key} onClick={() => setBuiltinOpen(builtinOpen === row.key ? null : row.key)}>···</button></div>
+          {builtinOpen === row.key && <div className="provider-key-editor"><label htmlFor={row.key}>{row.placeholder}</label><Input id={row.key} type="password" autoComplete="off" placeholder={row.placeholder} value={settings[row.key] || ""} onChange={(event) => handleBuiltinChange(row.key, event.target.value)} /><p>Stored in your operating system’s credential store. A saved key has not been connection-tested.</p>{settings[row.key] && <button onClick={() => handleBuiltinChange(row.key, "")}>Disconnect</button>}</div>}
+        </div>)}
+        {(settings.customProviders ?? []).map((provider) => {
+          const active = settings.activeCustomProviderId === provider.id && provider.enabled;
+          const test = readProviderTest(provider.id);
+          return <div key={provider.id} className="settings-provider-row"><span className="provider-symbol" aria-hidden><LuLink /></span><div className="provider-identity"><strong>{provider.name}{active && <span className="provider-tag">In use</span>}</strong><small>{provider.baseUrl}</small></div><span className={`provider-state ${test?.ok ? "is-connected" : ""}`}><i />{!provider.enabled ? "Disabled" : test ? test.ok ? "Tested OK" : "Test failed" : "Configured"}</span><div className="provider-row-actions"><Button variant="ghost" size="sm" onClick={() => toggleUse(provider)}>{active ? "Stop using" : "Use"}</Button><Button variant="ghost" size="icon" aria-label={`Edit ${provider.name}`} onClick={() => { setEditingProvider(provider); setDialogOpen(true); }}><LuPencil /></Button><Button variant="ghost" size="icon" aria-label={`Delete ${provider.name}`} onClick={() => setDeletingProvider(provider)}><LuTrash2 /></Button></div></div>;
+        })}
       </div>
-
-      {/* Custom providers */}
-      {(
-        <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
-          <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
-            <h2 className="text-sm font-medium text-gray-900 dark:text-white">
-              Custom providers
-            </h2>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setEditingProvider(null);
-                setDialogOpen(true);
-              }}
-            >
-              <LuPlus className="mr-1 h-3.5 w-3.5" />
-              Add provider
-            </Button>
-          </div>
-          {(settings.customProviders ?? []).length === 0 ? (
-            <p className="px-4 py-6 text-center text-xs text-gray-500 dark:text-zinc-400">
-              No custom providers yet. Add one to generate with any
-              OpenAI-compatible endpoint.
-            </p>
-          ) : (
-            <div className="divide-y divide-gray-100 dark:divide-zinc-700">
-              {(settings.customProviders ?? []).map((provider) => {
-                const isActive =
-                  settings.activeCustomProviderId === provider.id &&
-                  provider.enabled;
-                const lastTest = readProviderTest(provider.id);
-                return (
-                  <div
-                    key={provider.id}
-                    className="flex items-center justify-between gap-3 px-4 py-3"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="truncate text-sm text-gray-700 dark:text-zinc-300">
-                          {provider.name}
-                        </p>
-                        {isActive && (
-                          <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:text-emerald-400">In use</span>
-                        )}
-                        {!provider.enabled && (
-                          <span className="rounded-full border px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                            Disabled
-                          </span>
-                        )}
-                        {provider.enabled && !isActive && (
-                          <span
-                            className={`rounded-full px-1.5 py-0.5 text-[10px] ${lastTest?.ok ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : "bg-gray-500/15 text-gray-600 dark:text-zinc-400"}`}
-                            title={lastTest ? `Last connection test: ${lastTest.ok ? "ok" : "failed"} (${new Date(lastTest.at).toLocaleString()})` : "Saved, not tested yet"}
-                          >
-                            {lastTest ? (lastTest.ok ? "Tested OK" : "Test failed") : "Configured"}
-                          </span>
-                        )}
-                      </div>
-                      <p className="truncate text-xs text-gray-500 dark:text-zinc-400">
-                        {provider.baseUrl || "No Base URL"} ·{" "}
-                        {provider.models.length}{" "}
-                        {provider.models.length === 1 ? "model" : "models"}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => toggleUse(provider)}
-                      >
-                        {isActive ? "Stop using" : "Use"}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`Edit ${provider.name}`}
-                        onClick={() => {
-                          setEditingProvider(provider);
-                          setDialogOpen(true);
-                        }}
-                      >
-                        <LuPencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`Delete ${provider.name}`}
-                        className="text-gray-400 hover:text-red-500 dark:text-zinc-500 dark:hover:text-red-400"
-                        onClick={() => setDeletingProvider(provider)}
-                      >
-                        <LuTrash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          <p className="px-4 py-3 text-xs text-gray-500 dark:text-zinc-400">
-            The selected provider is used when you choose Best available.
-          </p>
-        </div>
-      )}
-
       <ProviderDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}

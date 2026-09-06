@@ -1,10 +1,11 @@
-import { FiLink, FiSettings } from "react-icons/fi";
+import { FiLink, FiSettings, FiBox, FiPlay } from "react-icons/fi";
 import React, { useEffect, useState } from "react";
 import { BsCheckCircleFill, BsExclamationTriangleFill } from "react-icons/bs";
 import { AppTheme, Settings } from "../../types";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import { native } from "@/lib/native";
+import ModelPicker from "@/components/studio/ModelPicker";
 import ProvidersSection from "./ProvidersSection";
 import type { ModelOption } from "@/components/studio/modelOptions";
 import { modelDisplayName } from "@/components/studio/modelOptions";
@@ -24,10 +25,12 @@ interface Props {
   appThemeMeta: PersistMeta;
 }
 
-type SettingsSection = "providers" | "general";
+type SettingsSection = "providers" | "models" | "execution" | "general";
 const SECTIONS: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
   { id: "providers", label: "Providers", icon: <FiLink aria-hidden /> },
-  { id: "general", label: "Preferences", icon: <FiSettings aria-hidden /> },
+  { id: "models", label: "Models", icon: <FiBox aria-hidden /> },
+  { id: "execution", label: "Execution", icon: <FiPlay aria-hidden /> },
+  { id: "general", label: "General", icon: <FiSettings aria-hidden /> },
 ];
 
 function SettingsTab({ settings, setSettings, settingsMeta, appTheme, setAppTheme, appThemeMeta }: Props) {
@@ -52,77 +55,33 @@ function SettingsTab({ settings, setSettings, settingsMeta, appTheme, setAppThem
     };
   }, []);
 
-  return (
-    <div className="flex-1 min-w-0">
-      <div className="mb-5">
-        <h1 className="text-[26px] font-bold tracking-tight">Settings</h1>
-        <p className="mt-0.5 text-[13px] text-stone-500 dark:text-zinc-400">Connect your models and make Forge feel like yours.</p>
-      </div>
-
-      <div className="flex flex-col sm:flex-row gap-6 items-start">
-        <nav className="hidden sm:flex w-44 shrink-0 flex-col gap-1" aria-label="Settings sections">
-          {SECTIONS.map((entry) => (
-            <button
-              key={entry.id}
-              onClick={() => setSection(entry.id)}
-              aria-current={section === entry.id ? "page" : undefined}
-              className={`flex items-center gap-2.5 rounded-[10px] px-3 py-2 text-left text-[13px] transition-colors ${
-                section === entry.id
-                  ? "bg-stone-200/70 dark:bg-zinc-800 font-medium text-stone-900 dark:text-white"
-                  : "text-stone-500 dark:text-zinc-400 hover:bg-stone-100 dark:hover:bg-zinc-800/50"
-              }`}
-            >
-              <span className="text-[13px]">{entry.icon}</span>
-              {entry.label}
-            </button>
-          ))}
-        </nav>
-
-        <div className="sm:hidden mb-3 w-full">
-          <select
-            aria-label="Settings section"
-            value={section}
-            onChange={(event) => setSection(event.target.value as SettingsSection)}
-            className="forge-select w-full"
-          >
-            {SECTIONS.map((entry) => (
-              <option key={entry.id} value={entry.id}>
-                {entry.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="flex-1 min-w-0 space-y-4">
-          {section === "providers" && (
-            <div className="forge-card p-5">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <h2 className="text-[15px] font-semibold">Providers</h2>
-                  <p className="text-[12.5px] text-stone-500">Connect the providers you want to use.</p>
-                </div>
-              </div>
-              <div className="mt-4">
-                <ProvidersSection settings={settings} setSettings={setSettings} />
-              </div>
-              <details className="mt-5"><summary className="cursor-pointer text-sm">Available models</summary><div className="mt-3"><ModelsSection /></div></details>
-            </div>
-          )}
-          {section === "general" && (
-            <div className="space-y-4">
-              <div className="forge-card p-5"><label className="flex items-center gap-2 text-sm"><input type="checkbox" aria-label="Image generation" checked={settings.isImageGenerationEnabled} onChange={(event) => setSettings((s) => ({ ...s, isImageGenerationEnabled: event.target.checked }))} />Allow image generation</label><p className="mt-2 text-xs text-stone-500">The agent chooses the technology from your request and existing project.</p></div>
-              <GeneralSection appTheme={appTheme} setAppTheme={setAppTheme} settings={settings} setSettings={setSettings} settingsMeta={settingsMeta} appThemeMeta={appThemeMeta} />
-              <IntegrationsSection
-                screenshotPreviewAvailable={screenshotPreviewAvailable}
-                settings={settings}
-                setSettings={setSettings}
-              />
-            </div>
-          )}
-        </div>
+  const goTo = (id: SettingsSection) => {
+    setSection(id);
+    document.getElementById(`settings-${id}`)?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" });
+  };
+  return <div className="settings-page">
+    <header className="settings-page-heading"><h1>Settings</h1><p>Configure providers, models, and defaults for your workspace.</p></header>
+    <div className="settings-page-layout">
+      <nav className="settings-section-nav" aria-label="Settings sections">{SECTIONS.map((entry) => <button key={entry.id} onClick={() => goTo(entry.id)} aria-current={section === entry.id ? "location" : undefined}>{entry.icon}{entry.label}</button>)}</nav>
+      <div className="settings-page-sections">
+        <section id="settings-providers" className="settings-card"><ProvidersSection settings={settings} setSettings={setSettings} /></section>
+        <section id="settings-models" className="settings-card"><ModelsSection /></section>
+        <section id="settings-execution" className="settings-card">
+          <h2>Execution Defaults</h2><p>Set the default models for new projects and their agents.</p>
+          <div className="settings-defaults">
+            <div><span>Primary model</span><ModelPicker settings={settings} value={settings.defaultPrimaryModel ?? ""} onChange={(value) => setSettings((s) => ({ ...s, defaultPrimaryModel: value }))} label="Default primary" /></div>
+            <div><span>Subagent model</span><ModelPicker settings={settings} value={settings.defaultSubagentModel ?? ""} onChange={(value) => setSettings((s) => ({ ...s, defaultSubagentModel: value }))} label="Default subagent" placeholder="Automatic" /></div>
+          </div>
+          <p className="settings-footnote">These defaults apply to new projects. You can override them in the composer.</p><PersistStatus meta={settingsMeta} what="Defaults" />
+        </section>
+        <section id="settings-general" className="settings-card">
+          <GeneralSection appTheme={appTheme} setAppTheme={setAppTheme} settings={settings} setSettings={setSettings} settingsMeta={settingsMeta} appThemeMeta={appThemeMeta} />
+          <label className="settings-image-toggle"><input type="checkbox" aria-label="Image generation" checked={settings.isImageGenerationEnabled} onChange={(event) => setSettings((s) => ({ ...s, isImageGenerationEnabled: event.target.checked }))} />Allow image generation</label>
+          <IntegrationsSection screenshotPreviewAvailable={screenshotPreviewAvailable} settings={settings} setSettings={setSettings} />
+        </section>
       </div>
     </div>
-  );
+  </div>;
 }
 
 function ModelsSection() {
@@ -139,7 +98,7 @@ function ModelsSection() {
   };
   useEffect(load, []);
   return (
-    <div className="forge-card p-5">
+    <div className="settings-card-content">
       <div className="flex items-center justify-between gap-2">
         <div>
           <h2 className="text-[15px] font-semibold">Models</h2>
@@ -148,7 +107,7 @@ function ModelsSection() {
         <Button variant="outline" size="sm" className="rounded-[9px]" onClick={load} disabled={loading}>⟳ {loading ? "Refreshing…" : "Refresh Models"}</Button>
       </div>
       {error && <p role="alert" className="mt-3 text-[12.5px] text-red-600">Could not refresh models: {error}</p>}
-      <div className="mt-4 overflow-x-auto rounded-xl border border-stone-200/70 dark:border-zinc-800">
+      <div className="settings-model-table">
         <table className="w-full text-[12.5px]">
           <thead>
             <tr className="bg-stone-50 dark:bg-zinc-800/50 text-left text-stone-500">
@@ -158,7 +117,7 @@ function ModelsSection() {
             </tr>
           </thead>
           <tbody>
-            {models.length === 0 && <tr><td colSpan={3} className="px-3.5 py-4 text-stone-400">No models reported. Configure a provider first.</td></tr>}
+            {models.length === 0 && <tr><td colSpan={3} className="px-3.5 py-4 text-stone-400">{loading ? "Loading models…" : "No models reported. Configure a provider first."}</td></tr>}
             {models.map((m) => (
               <tr key={`${m.group}:${m.value}`} className="border-t border-stone-100 dark:border-zinc-800">
                 <td className="px-3.5 py-2.5 font-medium">{modelDisplayName(m.value) || m.value}</td>
@@ -188,7 +147,7 @@ function PersistStatus({ meta, what }: { meta: PersistMeta; what: string }) {
 
 function GeneralSection({ appTheme, setAppTheme, settingsMeta, appThemeMeta }: Props) {
   return (
-    <div className="forge-card p-5">
+    <div className="settings-card-content">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-[15px] font-semibold">General</h2>
         <PersistStatus meta={appThemeMeta} what="Theme" />
@@ -227,7 +186,7 @@ function IntegrationsSection({
 }) {
   return (
     <div className="space-y-4">
-      <div className="forge-card p-5">
+      <div className="settings-card-content">
         <h2 className="text-[15px] font-semibold">Screenshot Preview</h2>
         <div className="mt-3">
           {screenshotPreviewAvailable === false ? (
@@ -252,7 +211,7 @@ function IntegrationsSection({
         </div>
       </div>
 
-      <div className="forge-card p-5">
+      <div className="settings-card-content">
         <h2 className="text-[15px] font-semibold">Replicate</h2>
         <p className="mt-1 text-[12px] text-stone-500">Used for image generation. The key is saved in your operating system’s credential store.</p>
         <Input

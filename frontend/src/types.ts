@@ -32,6 +32,8 @@ export interface CustomProvider {
 }
 
 export interface Settings {
+  defaultPrimaryModel?: string;
+  defaultSubagentModel?: string;
   openAiApiKey: string | null;
   // User-registered OpenAI-compatible endpoints.
   customProviders: CustomProvider[];

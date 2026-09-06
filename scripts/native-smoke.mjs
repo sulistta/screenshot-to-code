@@ -314,6 +314,10 @@ try {
   await step('provider settings through the UI', async () => {
     await clickText('button', 'Settings', '.forge-sidebar');
     await until(() => script('return [...document.querySelectorAll("button")].some(b=>b.textContent.trim()==="Providers")'), 'settings screen');
+    assert.equal(await script('return document.querySelector(".forge-settings-dialog").getBoundingClientRect().left >= 190'), true, 'settings keeps the sidebar visible');
+    assert.equal(await script('return ["settings-providers","settings-models","settings-execution"].every(id => document.getElementById(id))'), true, 'reference sections share one page');
+    assert.ok(await script('return Math.abs(document.querySelector(".forge-settings-dialog").getBoundingClientRect().width - (innerWidth - 220)) < 2'), 'settings fills the workspace width');
+    await shot('/tmp/forge-settings-reference.png');
     await clickText('button', 'Add provider');
     await fillField('#provider-name', 'Native Fake');
     await fillField('#provider-base-url', providerBase);

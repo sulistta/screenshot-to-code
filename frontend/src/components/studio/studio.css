@@ -2,7 +2,7 @@
  * pre-emit critique: P4 H4 E4 S4 R5 V4 */
 @import "../../../tokens.css";
 .studio-shell { display:grid; grid-template-columns:220px minmax(0,1fr); height:100dvh; width:100%; overflow:clip; background:var(--forge-paper); color:var(--forge-ink); font-family:var(--font-body); }
-.studio-shell :is(button,a,input,select,textarea):focus-visible, .forge-settings-dialog :focus-visible { outline:2px solid var(--forge-focus); outline-offset:3px; }
+.studio-shell :is(button,a,input,select,textarea):focus-visible, .forge-settings-dialog[role="dialog"] :focus-visible { outline:2px solid var(--forge-focus); outline-offset:3px; }
 .studio-shell button { transition:opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
 .studio-shell button:active:not(:disabled) { transform:translateY(1px); }
 .studio-shell button:disabled { opacity:.45; cursor:not-allowed; }
@@ -121,7 +121,7 @@
 .source-editor { flex:1; min-height:0; overflow:auto; }
 .source-editor .cm-editor { height:100%; }
 .history-workspace pre,.run-details pre { overflow:auto; font-family:var(--font-mono); font-size:11px; padding:var(--space-md); background:var(--forge-soft); border-radius:var(--radius-control); }
-.forge-settings-dialog { display:block; width:calc(100vw - 48px); max-width:960px; max-height:calc(100dvh - 80px); overflow:auto; background:var(--forge-paper); color:var(--forge-ink); border-color:var(--forge-border); border-radius:var(--radius-panel); padding:var(--space-2xl); }
+.forge-settings-dialog[role="dialog"] { display:block; width:calc(100vw - 48px); max-width:960px; max-height:calc(100dvh - 80px); overflow:auto; background:var(--forge-paper); color:var(--forge-ink); border-color:var(--forge-border); border-radius:var(--radius-panel); padding:var(--space-2xl); }
 .run-details { margin-top:var(--space-xl); }
 .run-detail { border-top:1px solid var(--forge-border); padding:var(--space-md) 0; }
 .run-detail summary { cursor:pointer; font-size:13px; padding:var(--space-sm) 0; }
@@ -160,7 +160,7 @@
   .forge-project-list { grid-column:1 / -1; max-height:96px; }
   .forge-main { flex:1; }
   .forge-topbar { padding:0 var(--space-sm); }
-  .forge-settings-dialog { width:calc(100vw - 16px); padding:var(--space-xl) var(--space-lg); }
+  .forge-settings-dialog[role="dialog"] { width:calc(100vw - 16px); padding:var(--space-xl) var(--space-lg); }
   .composer-models { gap:var(--space-xs) var(--space-md); }
   .composer-models > button span { max-width:100px; }
   .forge-new-project { padding-top:var(--space-lg); }
@@ -245,3 +245,51 @@
 .thinking-lines { padding:75px 0; }
 .thinking-line { text-align:left; font-size:14px; line-height:1.8; margin:0; white-space:pre-wrap; overflow-wrap:anywhere; transform-origin:center; }
 @media(prefers-reduced-motion:reduce) { .thinking-line { transform:none !important; opacity:1 !important; } .thinking-viewport { mask-image:none; scroll-behavior:auto; } }
+
+/* Settings follows the reference's full-page navigation and compact settings rows. */
+.forge-settings-dialog[role="dialog"] { font-family:var(--font-body); left:220px; top:52px; width:calc(100vw - 220px); height:calc(100dvh - 52px); max-width:none; max-height:none; transform:none; border:0; border-radius:0; box-shadow:none; padding:24px; animation:none !important; overflow:auto; }
+.settings-page { max-width:1320px; margin:0 auto; }
+.settings-page-heading { margin:4px 0 28px; }
+.settings-page-heading h1 { font-size:32px; letter-spacing:-1px; font-weight:650; }
+.settings-page-heading p { margin-top:4px; color:var(--forge-muted); font-size:14px; }
+.settings-page-layout { display:grid; grid-template-columns:170px minmax(0,1fr); gap:28px; align-items:start; }
+.settings-section-nav { position:sticky; top:0; display:flex; flex-direction:column; gap:4px; }
+.settings-section-nav button { display:flex; align-items:center; gap:12px; padding:10px 12px; text-align:left; border-radius:8px; color:var(--forge-muted); font-size:14px; }
+.settings-section-nav svg { width:18px; height:18px; }
+.settings-section-nav button[aria-current] { background:var(--forge-soft); color:var(--forge-ink); }
+.settings-page-sections { display:flex; flex-direction:column; gap:16px; min-width:0; }
+.settings-card { border:1px solid var(--forge-border); border-radius:10px; padding:16px; scroll-margin-top:16px; }
+.settings-card h2 { font-size:18px; font-weight:600; letter-spacing:-.4px; }
+.settings-card h2 + p,.settings-card-heading p { color:var(--forge-muted); font-size:12px; margin-top:2px; }
+.settings-card-heading { display:flex; gap:16px; justify-content:space-between; align-items:center; margin-bottom:16px; }
+.settings-provider-list { border:1px solid var(--forge-border); border-radius:8px; overflow:hidden; }
+.settings-provider-list > * + * { border-top:1px solid var(--forge-border); }
+.settings-provider-row { display:flex; align-items:center; gap:12px; padding:12px; min-width:0; }
+.provider-symbol { display:grid; place-items:center; width:32px; height:32px; flex-shrink:0; background:var(--forge-soft); border-radius:6px; font-size:19px; }
+.provider-identity { flex:1; min-width:0; }
+.provider-identity strong { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; }
+.provider-identity small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--forge-muted); font-size:12px; margin-top:3px; }
+.provider-tag { background:var(--forge-soft); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:400; }
+.provider-state { display:flex; align-items:center; gap:8px; color:var(--forge-muted); font-size:11px; white-space:nowrap; }
+.provider-state i { width:6px; height:6px; background:var(--forge-muted); border-radius:50%; }
+.provider-state.is-connected i { background:var(--forge-accent); }
+.provider-more { width:32px; height:32px; font-size:19px; }
+.provider-row-actions { display:flex; align-items:center; }
+.provider-row-actions svg { width:14px; height:14px; }
+.provider-key-editor { padding:4px 16px 16px 56px; font-size:12px; }
+.provider-key-editor p { color:var(--forge-muted); margin-top:6px; }
+.settings-model-table { margin-top:14px; max-height:180px; overflow:auto; border-radius:6px; }
+.settings-model-table th { position:sticky; top:0; background:var(--forge-soft); }
+.settings-model-table th,.settings-model-table td { padding:7px 10px; font-size:12px; }
+.settings-defaults { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px; margin-top:16px; }
+.settings-defaults > div > span { display:block; font-size:12px; color:var(--forge-muted); margin-bottom:6px; }
+.settings-defaults button { width:100%; padding:10px 12px; border:1px solid var(--forge-border); border-radius:8px; }
+.settings-footnote { font-size:11px; color:var(--forge-muted); margin:14px 0 6px; }
+.settings-image-toggle { display:flex; gap:8px; align-items:center; margin:20px 0; font-size:13px; }
+#settings-general .settings-card-content + .settings-card-content { margin-top:20px; }
+@media(max-width:1199px) { .forge-settings-dialog[role="dialog"] { left:190px; width:calc(100vw - 190px); } .settings-page-layout { grid-template-columns:125px minmax(0,1fr); gap:16px; } }
+@media(max-width:900px) { .settings-page-layout { display:block; } .settings-section-nav { position:static; flex-direction:row; flex-wrap:wrap; margin-bottom:16px; } .settings-section-nav button { padding:8px; } .provider-state { display:none; } }
+@media(max-width:600px) { .forge-settings-dialog[role="dialog"] { left:0; width:100vw; padding:16px; } .settings-defaults { grid-template-columns:1fr; gap:12px; } .settings-card-heading { align-items:flex-start; } .settings-card { padding:12px; } }
+
+.settings-defaults button > span:first-child { display:none; }
+.settings-defaults button { margin:0; justify-content:space-between; font-size:13px; }

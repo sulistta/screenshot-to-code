@@ -135,7 +135,7 @@ export default function StudioPage() {
       <div className="forge-main">
         <WindowTitlebar
           crumb={
-            activeProject ? (
+            isSettingsOpen ? <span>Settings</span> : activeProject ? (
               <>
                 <span className="muted">Projects</span>
                 <span className="muted">›</span>
@@ -150,7 +150,7 @@ export default function StudioPage() {
           }
         />
 
-        <div className="forge-content">
+        <div className="forge-content" style={isSettingsOpen ? { display: "none" } : undefined}>
           {!routeProjectId ? (
             <NewProjectView
               settings={settings}
@@ -176,7 +176,7 @@ export default function StudioPage() {
 
       </div>
 
-      <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+      <Dialog modal={false} open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
         <DialogContent className="forge-settings-dialog" onCloseAutoFocus={(event) => { event.preventDefault(); document.querySelector<HTMLButtonElement>(".forge-sidebar-foot button")?.focus(); }}>
           <DialogTitle className="sr-only">Settings</DialogTitle>
           <DialogDescription className="sr-only">Providers and preferences. Your project keeps running while this panel is open.</DialogDescription>
@@ -273,8 +273,12 @@ function ForgeSidebar({
 
 function NewProjectView({ settings, onCreated }: { settings: Settings; onCreated: (id: string) => void }) {
   const [brief, setBrief] = useState(() => sessionStorage.getItem("new-project-draft") ?? "");
-  const [primary, setPrimary] = useState("");
-  const [subagent, setSubagent] = useState("");
+  const [primary, setPrimary] = useState(settings.defaultPrimaryModel ?? "");
+  const [subagent, setSubagent] = useState(settings.defaultSubagentModel ?? "");
+  const modelsTouched = useRef(false);
+  useEffect(() => {
+    if (!modelsTouched.current) { setPrimary(settings.defaultPrimaryModel ?? ""); setSubagent(settings.defaultSubagentModel ?? ""); }
+  }, [settings.defaultPrimaryModel, settings.defaultSubagentModel]);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const creatingRef = useRef(false);
@@ -337,7 +341,7 @@ function NewProjectView({ settings, onCreated }: { settings: Settings; onCreated
     <p className="forge-sub">Start with an idea or a reference. We’ll build from there.</p>
     <Composer isNew value={brief} onChange={(value) => { setBrief(value); setCreateError(null); }} onSubmit={() => void create()}
       settings={settings} primary={primary} subagent={subagent}
-      onModelsChange={(patch) => { if (patch.primaryModel !== undefined) setPrimary(patch.primaryModel); if (patch.subagentModel !== undefined) setSubagent(patch.subagentModel); }}
+      onModelsChange={(patch) => { modelsTouched.current = true; if (patch.primaryModel !== undefined) setPrimary(patch.primaryModel); if (patch.subagentModel !== undefined) setSubagent(patch.subagentModel); }}
       images={images} onFiles={addFiles} onRemove={removeAt} error={createError || attachError} busy={creating} />
   </div>;
 }
